@@ -5,10 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/de/).
 
-> This project uses [Changesets](https://github.com/changesets/changesets) for versioning and releases.
-> Per-package changelogs are generated in [packages/core/CHANGELOG.md](packages/core/CHANGELOG.md) and
-> [packages/engine-onnx/CHANGELOG.md](packages/engine-onnx/CHANGELOG.md) on release.
-
 ## [Unreleased]
 
 ### Fixed
@@ -38,6 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/lang/de/).
     - Persistent offline cache via browser Cache Storage (works offline after first download)
     - Worker lifecycle management with `dispose()`
 - Toolchain: TypeScript, tsdown (ESM + declarations), Vitest (+ Browser Mode with Playwright/Chromium),
-  ESLint + typescript-eslint, Prettier, publint, Are The Types Wrong, knip, size-limit, Changesets
+  ESLint + typescript-eslint, Prettier, publint, Are The Types Wrong, knip, size-limit
 - CI workflow (build, typecheck, lint, knip, unit tests, browser tests)
 - Browser demo in [examples/demo/index.html](examples/demo/index.html)

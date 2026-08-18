@@ -14,12 +14,9 @@
     "format:check": "prettier --check .",
     "knip": "knip",
     "size": "size-limit",
-    "pack:check": "npm run build && publint --workspace && attw --workspace",
-    "changeset": "changeset",
-    "release": "changeset publish"
+    "pack:check": "npm run build && publint --workspace && attw --workspace"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.1",
     "@eslint/js": "^9.39.5",
     "@size-limit/preset-small-lib": "^11.1.6",
     "eslint": "^9.14.0",
