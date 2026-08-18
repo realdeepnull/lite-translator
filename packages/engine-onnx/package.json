@@ -1,0 +1,59 @@
+{
+  "name": "@lite-translator/engine-onnx",
+  "version": "0.0.1",
+  "description": "Local machine-translation engine for lite-translator, powered by Transformers.js.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "import": "./dist/worker.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "publint": "publint",
+    "attw": "attw --pack . --format table || exit 0"
+  },
+  "keywords": [
+    "translation",
+    "transformers",
+    "onnx",
+    "browser",
+    "webworker",
+    "local",
+    "offline"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@huggingface/transformers": "^3.3.3"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@lite-translator/core": "*",
+    "@vitest/browser": "^3.0.0",
+    "playwright": "^1.49.0",
+    "publint": "^0.3.23",
+    "tsdown": "^0.9.0",
+    "vitest": "^3.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@lite-translator/core": "0.0.1"
+  }
+}

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lite-translator Demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 44rem; padding: 0 1rem; }
+      textarea { width: 100%; min-height: 5rem; }
+      output { display: block; white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 6px; min-height: 2rem; }
+      button { margin: 0.5rem 0; }
+      details { margin-top: 1rem; font-size: 0.9em; color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>lite-translator Demo (de → en)</h1>
+    <p>Local translation in the browser via @lite-translator/core + @lite-translator/engine-onnx.</p>
+    <textarea id="src" placeholder="Enter German text">Hallo Welt, wie geht es dir?</textarea>
+    <button id="run">Translate</button>
+    <output id="out" aria-live="polite"></output>
+    <progress id="bar" max="1" value="0" style="width:100%"></progress>
+    <details>
+      <summary>Prerequisite</summary>
+      Run <code>npm run build</code> in the repository first. This page loads the
+      local dist bundles of the workspace packages (no separate bundling).
+      The first translation downloads the quantized model from the Hugging Face Hub.
+    </details>
+    <script type="module">
+      import { createTranslator } from "../../packages/core/dist/index.js";
+      import { createOnnxEngine } from "../../packages/engine-onnx/dist/index.js";
+
+      const src = document.getElementById("src");
+      const out = document.getElementById("out");
+      const bar = document.getElementById("bar");
+      const btn = document.getElementById("run");
+
+      btn.addEventListener("click", async () => {
+        out.value = "Loading model …";
+        try {
+          const translator = await createTranslator({
+            from: "de",
+            to: "en",
+            engines: [createOnnxEngine()],
+            onProgress: (e) => {
+              if (Number.isFinite(e.progress)) bar.value = e.progress;
+              bar.removeAttribute("value");
+            },
+          });
+          out.value = "Translating …";
+          const result = await translator.translate(src.value);
+          out.value = result.text;
+          bar.value = 1;
+        } catch (err) {
+          out.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+        }
+      });
+    </script>
+  </body>
+</html>

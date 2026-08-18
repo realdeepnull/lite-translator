@@ -1,0 +1,55 @@
+{
+  "name": "@lite-translator/core",
+  "version": "0.0.1",
+  "description": "Privacy-friendly, local, offline-capable translation core API for the browser.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "size": "size-limit",
+    "publint": "publint",
+    "attw": "attw --pack . --format table || exit 0"
+  },
+  "keywords": [
+    "translation",
+    "translate",
+    "browser",
+    "local",
+    "offline",
+    "privacy"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "publint": "^0.3.23",
+    "tsdown": "^0.9.0",
+    "vitest": "^3.0.0"
+  },
+  "size-limit": [
+    {
+      "name": "core",
+      "path": "dist/index.js",
+      "limit": "30 KB",
+      "gzip": true
+    }
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
