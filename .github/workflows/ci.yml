@@ -19,9 +19,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run knip
-      - run: npm run test
+      # Browser tests (engine-onnx + bench suites) need Playwright Chromium
       - run: npx playwright install chromium
-      - run: npm run test --workspace @lite-translator/engine-onnx
+      - run: npm run test
         env:
           CI: "true"
       # Quality suite — CI gate (fails on translation regressions)
@@ -44,7 +44,7 @@ jobs:
       - run: npm run bench
         env:
           CI: "true"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: benchmark-report
