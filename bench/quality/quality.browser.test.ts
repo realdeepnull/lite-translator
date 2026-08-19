@@ -85,6 +85,21 @@ describe("de → en quality", () => {
       }
     }, 30_000);
   }
+
+  it("translateBatch liefert die gleichen Ergebnisse wie einzelne translate()-Aufrufe", async () => {
+    const subset = qualityCases.slice(0, 5);
+    const inputs = subset.map((c) => c.input);
+
+    const batchResults = await translator.translateBatch(inputs);
+    expect(batchResults).toHaveLength(inputs.length);
+
+    for (let i = 0; i < subset.length; i++) {
+      const c = subset[i]!;
+      const single = await translator.translate(c.input);
+      // Batch und Einzel-Übersetzung müssen identisch sein (gleiche Pipeline).
+      expect(batchResults[i]!.text, `batch[${i}] != single for "${truncate(c.input)}"`).toBe(single.text);
+    }
+  }, 120_000);
 });
 
 function truncate(s: string, max = 60): string {

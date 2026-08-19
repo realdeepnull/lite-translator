@@ -111,6 +111,44 @@ Adjust the imports in the HTML:
 
 ⚠️ In this variant, the runtime dependency `@huggingface/transformers` must be resolved by the worker. Because the worker imports it, you either need an import map in the worker (not supported by all browsers) or you bundle it beforehand. **Option 1 is therefore much simpler.**
 
+## Batch translation
+
+`translateBatch()` translates multiple texts in a single worker roundtrip. The
+ONNX engine uses native Transformers.js batching (`pipe([...])`) — one
+tokenization, encoder and decoder pass for the whole batch instead of N
+sequential roundtrips. Result order matches input order; empty strings are
+passed through unchanged. Batches larger than 32 texts are chunked automatically.
+
+```html
+<script type="module">
+  import { createTranslator } from "@lite-translator/core";
+  import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+  const out = document.getElementById("out");
+
+  document.getElementById("runBatch").addEventListener("click", async () => {
+    out.value = "Translating batch…";
+    try {
+      const translator = await createTranslator({
+        from: "de",
+        to: "en",
+        engines: [createOnnxEngine()],
+      });
+      const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
+      const results = await translator.translateBatch(inputs);
+      out.value = results.map((r) => r.text).join("\n");
+      await translator.dispose();
+    } catch (err) {
+      out.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+    }
+  });
+</script>
+```
+
+> **Performance:** For N short sentences, `translateBatch()` is typically 2–5×
+> faster than N individual `translate()` calls because the fixed inference cost
+> (session setup, KV-cache init, kernel dispatch) is paid once per batch.
+
 ## Notes
 
 - **Offline:** After the first model download, translation works without a network connection (Cache Storage).

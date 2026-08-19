@@ -229,6 +229,74 @@ These three files are required for the library to work:
 
 By copying these three files explicitly to the output root, the browser can fetch them successfully once the library initializes the worker and sets up the ONNX environment.
 
+## Step 6: Batch translation
+
+`translateBatch()` translates multiple texts in a single worker roundtrip. The
+ONNX engine uses native Transformers.js batching (`pipe([...])`) — one
+tokenization, encoder and decoder pass for the whole batch instead of N
+sequential roundtrips. Result order matches input order; empty strings are
+passed through unchanged. Batches larger than 32 texts are chunked automatically.
+
+Extend the service with a batch helper:
+
+```ts
+// src/app/translation.service.ts (additions)
+async translateBatch(texts: string[]): Promise<string[]> {
+  const translator = await this.create();
+  const results = await translator.translateBatch(texts);
+  return results.map((r) => r.text);
+}
+```
+
+Use it in a component — for example to translate a list of UI strings at once:
+
+```ts
+// src/app/translator-batch.component.ts
+import { Component, inject, signal } from "@angular/core";
+import { TranslationService } from "./translation.service";
+
+interface StringItem {
+  key: string;
+  original: string;
+}
+
+@Component({
+  selector: "app-translator-batch",
+  standalone: true,
+  template: `
+    <button (click)="handleBatch()">Translate all</button>
+    @for (item of items(); track item.key) {
+      <div>{{ item.key }}: {{ item.original }} → {{ item.translated() }}</div>
+    }
+  `,
+})
+export class TranslatorBatchComponent {
+  private readonly translation = inject(TranslationService);
+
+  protected readonly items = signal<StringItem[]>([
+    { key: "greeting", original: "Hallo Welt" },
+    { key: "farewell", original: "Auf Wiedersehen" },
+    { key: "question", original: "Wie geht es dir?" },
+  ]);
+  private readonly translations = signal<Record<string, string>>({});
+  protected translated = (item: StringItem) => this.translations()[item.key] ?? "";
+
+  protected async handleBatch(): Promise<void> {
+    const originals = this.items().map((i) => i.original);
+    const results = await this.translation.translateBatch(originals);
+    const map: Record<string, string> = {};
+    this.items().forEach((item, i) => {
+      map[item.key] = results[i] ?? "";
+    });
+    this.translations.set(map);
+  }
+}
+```
+
+> **Performance:** For N short sentences, `translateBatch()` is typically 2–5×
+> faster than N individual `translate()` calls because the fixed inference cost
+> (session setup, KV-cache init, kernel dispatch) is paid once per batch.
+
 ## Notes
 
 - **Lazy loading:** `createTranslator()` does not load a model yet. Only `translate()` or `preload()` loads the model from the Hugging Face Hub.

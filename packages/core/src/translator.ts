@@ -64,6 +64,28 @@ export class Translator {
     }
   }
 
+  /**
+   * Translates multiple texts in a single call (batched when the engine
+   * supports it). Loads the model when needed. The result order matches the
+   * input order; empty strings are preserved.
+   */
+  async translateBatch(texts: string[], options?: TranslateOptions): Promise<TranslationResult[]> {
+    this.#assertNotDisposed();
+    if (!this.#ready) {
+      await this.preload();
+    }
+    try {
+      return await this.#engine.translateBatch(texts, this.#pair, options);
+    } catch (error) {
+      if (error instanceof TranslatorError) {
+        throw error;
+      }
+      throw new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Batch translation failed", {
+        cause: error,
+      });
+    }
+  }
+
   /** true, wenn das Modell geladen und sofort einsatzbereit ist. */
   isReady(): boolean {
     return this.#ready;

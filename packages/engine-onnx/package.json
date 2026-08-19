@@ -1,6 +1,6 @@
 {
   "name": "@lite-translator/engine-onnx",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Local machine-translation engine for lite-translator, powered by Transformers.js.",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@lite-translator/core": "*",
+    "@lite-translator/core": "^0.1.0",
     "@vitest/browser": "^3.0.0",
     "playwright": "^1.49.0",
     "publint": "^0.3.23",
@@ -54,6 +54,6 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@lite-translator/core": "0.0.1"
+    "@lite-translator/core": "^0.1.0"
   }
 }

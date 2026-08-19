@@ -166,7 +166,7 @@ Make quality, size and performance measurable.
 
 ### Step 9 — Batch Translation
 
-**Status:** ⬜ Open
+**Status:** ✅ Done
 
 `translateBatch()` as a prerequisite for v0.1.
 

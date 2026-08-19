@@ -43,11 +43,16 @@ interface TranslateMessage {
   id: number;
   text: string;
 }
+interface TranslateBatchMessage {
+  kind: "translate";
+  id: number;
+  texts: string[];
+}
 interface DisposeMessage {
   kind: "dispose";
   id: number;
 }
-type Request = LoadMessage | TranslateMessage | DisposeMessage;
+type Request = LoadMessage | TranslateMessage | TranslateBatchMessage | DisposeMessage;
 
 interface ProgressEvent {
   phase: string;
@@ -73,7 +78,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         await handleLoad(msg.id, msg.modelId);
         break;
       case "translate":
-        await handleTranslate(msg.id, msg.text);
+        await handleTranslate(msg.id, "texts" in msg ? msg.texts : msg.text);
         break;
       case "dispose":
         await handleDispose(msg.id);
@@ -119,13 +124,21 @@ async function handleLoad(id: number, modelId: string): Promise<void> {
   post({ kind: "loaded", id });
 }
 
-async function handleTranslate(id: number, text: string): Promise<void> {
+async function handleTranslate(id: number, payload: string | string[]): Promise<void> {
   if (!pipe) {
     throw new Error("Model not loaded");
   }
-  const output = (await pipe(text)) as Array<{ translation_text: string }>;
-  const first = output[0];
-  post({ kind: "result", id, text: first?.translation_text ?? "" });
+  const isBatch = Array.isArray(payload);
+  // Transformers.js pipe accepts string | string[]; normalize single text to a
+  // one-element array so the output shape is always Array<{ translation_text }>.
+  const input = isBatch ? payload : [payload];
+  const output = (await pipe(input)) as Array<{ translation_text: string }>;
+  const texts = output.map((o) => o?.translation_text ?? "");
+  if (isBatch) {
+    post({ kind: "result", id, texts });
+  } else {
+    post({ kind: "result", id, text: texts[0] ?? "" });
+  }
 }
 
 async function handleDispose(id: number): Promise<void> {
@@ -142,6 +155,7 @@ type Response =
   | { kind: "progress"; id: number; event: ProgressEvent }
   | { kind: "loaded"; id: number }
   | { kind: "result"; id: number; text: string }
+  | { kind: "result"; id: number; texts: string[] }
   | { kind: "disposed"; id: number }
   | { kind: "error"; id: number; message: string };
 

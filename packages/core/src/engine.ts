@@ -32,8 +32,50 @@ export interface TranslationEngine {
     options?: TranslateOptions,
   ): Promise<TranslationResult>;
 
+  /**
+   * Translates multiple texts in a single call.
+   *
+   * Engines SHOULD use native batching when the runtime supports it
+   * (e.g. Transformers.js `pipe([...])`), otherwise they MAY fall back to a
+   * sequential `translate()` loop. The result order MUST match the input order
+   * (result index i corresponds to input index i).
+   *
+   * Empty strings are preserved as empty results (no content loss).
+   *
+   * Lazily loads the model if it is not loaded yet.
+   */
+  translateBatch(
+    texts: string[],
+    pair: LanguagePair,
+    options?: TranslateOptions,
+  ): Promise<TranslationResult[]>;
+
   /** Releases memory and runtime resources. */
   dispose(): Promise<void>;
+}
+
+/**
+ * Wraps an engine so that `translateBatch` is always available.
+ *
+ * If the engine already implements `translateBatch`, it is returned unchanged.
+ * Otherwise a proxy is returned whose `translateBatch` sequentially calls
+ * `translate()` for each input text, preserving input order. This keeps
+ * third-party engines (that only implement `translate`) compatible with the
+ * `TranslationEngine` contract introduced in 0.1.0 without requiring them to
+ * implement native batching.
+ */
+export function withBatchFallback(engine: TranslationEngine): TranslationEngine {
+  if (typeof engine.translateBatch === "function") {
+    return engine;
+  }
+  return {
+    ...engine,
+    translateBatch: (texts, pair, options) =>
+      texts.reduce<Promise<TranslationResult[]>>(
+        async (acc, text) => [...(await acc), await engine.translate(text, pair, options)],
+        Promise.resolve([]),
+      ),
+  };
 }
 
 const defaultEngines: TranslationEngine[] = [];

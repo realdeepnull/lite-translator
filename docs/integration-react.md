@@ -75,6 +75,46 @@ export function TranslatorExample() {
 }
 ```
 
+## Batch translation
+
+`translateBatch()` translates multiple texts in a single worker roundtrip. The
+ONNX engine uses native Transformers.js batching (`pipe([...])`) — one
+tokenization, encoder and decoder pass for the whole batch instead of N
+sequential roundtrips. Result order matches input order; empty strings are
+passed through unchanged. Batches larger than 32 texts are chunked automatically.
+
+```tsx
+function BatchTranslator() {
+  const [outputs, setOutputs] = useState<string[]>([]);
+  const translatorRef = useRef<Translator | null>(null);
+
+  // … create translator in useEffect as above …
+
+  const handleBatch = async () => {
+    const translator = translatorRef.current;
+    if (!translator) return;
+    const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
+    const results = await translator.translateBatch(inputs);
+    setOutputs(results.map((r) => r.text));
+  };
+
+  return (
+    <div>
+      <button onClick={handleBatch}>Translate all</button>
+      <ul>
+        {outputs.map((text, i) => (
+          <li key={i}>{text}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+> **Performance:** For N short sentences, `translateBatch()` is typically 2–5×
+> faster than N individual `translate()` calls because the fixed inference cost
+> (session setup, KV-cache init, kernel dispatch) is paid once per batch.
+
 ## Notes
 
 - **Lazy loading:** `createTranslator()` does not load a model yet. Only `translate()` or `preload()` loads the model from the Hugging Face Hub. On the first call, the progress bar appears.

@@ -599,14 +599,20 @@
         try {
           const t = await ensureReady();
           if (runAll) {
-            // Sequentielle Abarbeitung: die ONNX-Engine nutzt einen einzelnen
-            // Web Worker, parallele Requests würden sich nur gegenseitig blockieren.
+            // Ein Batch-Aufruf statt N einzelner translate()-Aufrufe.
+            // Die ONNX-Engine nutzt nativen Worker-Batching (pipe([...])).
+            const texts = items.map((item) => item.src.value);
+            const results = await t.translateBatch(texts);
             let done = 0;
-            for (const item of target) {
-              await translateOne(item, t);
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              item.out.classList.remove("placeholder");
+              item.out.textContent = results[i].text;
+              item.status.className = "status is-done";
+              item.status.textContent = "fertig";
               done += 1;
-              setProgress(done / target.length, `Batch: ${done}/${target.length} fertig`);
             }
+            setProgress(1, `Batch: ${done}/${items.length} fertig`);
           } else {
             await translateOne(target[0], t);
             setProgress(1, "Erster Text übersetzt.");

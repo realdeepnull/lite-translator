@@ -32,6 +32,8 @@ interface BenchMetrics {
   warmP95Ms: number;
   warmMeanMs: number;
   warmIterations: number;
+  batchTranslateMs: number;
+  batchInputsCount: number;
   modelSizeBytes: number;
   modelFileCount: number;
 }
@@ -95,15 +97,15 @@ writeFileSync(jsonPath, JSON.stringify(report, null, 2) + "\n");
 // Markdown table (append so historical runs accumulate).
 const mdRow =
   `| ${bench.timestamp} | ${fmtMs(bench.coldStartMs)} | ${fmtMs(bench.firstTranslateMs)} ` +
-  `| ${fmtMs(bench.warmMedianMs)} | ${fmtMs(bench.warmP95Ms)} | ${fmtBytes(bundle.totalGzipBytes)} ` +
-  `| ${fmtBytes(bench.modelSizeBytes)} |\n`;
+  `| ${fmtMs(bench.warmMedianMs)} | ${fmtMs(bench.warmP95Ms)} | ${fmtMs(bench.batchTranslateMs)} ` +
+  `| ${bench.batchInputsCount} | ${fmtBytes(bundle.totalGzipBytes)} | ${fmtBytes(bench.modelSizeBytes)} |\n`;
 
 if (!existsSync(summaryPath)) {
   writeFileSync(
     summaryPath,
     "# Benchmark Summary\n\n" +
-      "| timestamp | cold start | first | warm median | warm p95 | bundle gzip | model size |\n" +
-      "|---|---|---|---|---|---|---|\n",
+      "| timestamp | cold start | first | warm median | warm p95 | batch | batch n | bundle gzip | model size |\n" +
+      "|---|---|---|---|---|---|---|---|---|\n",
   );
 }
 appendFileSync(summaryPath, mdRow);

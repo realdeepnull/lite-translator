@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createTranslator } from "@lite-translator/core";
 import { createOnnxEngine, createDefaultRegistry, defaultModelIds } from "../../packages/engine-onnx/src/index.js";
+import { qualityCases } from "../quality/cases.js";
 import type { BenchMetrics } from "./types.js";
 
 /**
@@ -53,6 +54,14 @@ describe("de → en benchmark", () => {
       warmRunsMs.push(performance.now() - t);
     }
 
+    // ---- batch translation (all quality-case inputs in one call) --------
+    const batchInputs = qualityCases.map((c) => c.input);
+    const tBatch = performance.now();
+    const batchResults = await translator.translateBatch(batchInputs);
+    const batchTranslateMs = performance.now() - tBatch;
+    expect(batchResults).toHaveLength(batchInputs.length);
+    expect(batchResults.every((r) => r.text.length >= 0)).toBe(true);
+
     // ---- model size via Cache Storage ------------------------------------
     const modelSize = await sumCachedSizes(modelFileUrls);
 
@@ -75,6 +84,8 @@ describe("de → en benchmark", () => {
       warmP95Ms: round(p95),
       warmMeanMs: round(mean),
       warmIterations: WARM_ITERATIONS,
+      batchTranslateMs: round(batchTranslateMs),
+      batchInputsCount: batchInputs.length,
       modelSizeBytes: modelSize.bytes,
       modelFileCount: modelSize.count,
     };

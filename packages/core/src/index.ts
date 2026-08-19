@@ -8,6 +8,7 @@ export type { ErrorCode } from "./errors.js";
 export {
   registerDefaultEngine,
   getDefaultEngines,
+  withBatchFallback,
 } from "./engine.js";
 export type { TranslationEngine } from "./engine.js";
 export {

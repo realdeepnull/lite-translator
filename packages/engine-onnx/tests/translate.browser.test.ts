@@ -66,4 +66,33 @@ describe("TransformersEngine (Browser)", () => {
     await expect(translator.isCached()).resolves.toBe(true);
     await translator.dispose();
   }, 600000);
+
+  it("übersetzt ein Batch de→en in Eingabereihenfolge", async () => {
+    const engine = createOnnxEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
+    const results = await translator.translateBatch(inputs);
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.engine === "onnx" && r.from === "de" && r.to === "en")).toBe(true);
+    // Reihenfolge muss der Eingabe entsprechen und jeder Output nicht-leer sein.
+    for (const r of results) {
+      expect(r.text.trim().length).toBeGreaterThan(0);
+    }
+    // Plausibilität: einzelne Batch-Übersetzung stimmt mit Einzel-Übersetzung überein.
+    const single = await translator.translate(inputs[1]);
+    expect(results[1].text).toBe(single.text);
+    await translator.dispose();
+  }, 600000);
+
+  it("erhält Leerstrings im Batch", async () => {
+    const engine = createOnnxEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const results = await translator.translateBatch(["", "Hallo", ""]);
+    expect(results).toHaveLength(3);
+    // Leerstring-Eingabe liefert leeren (oder whitespace-only) Output, kein Content-Loss.
+    expect(results[0].text.trim()).toBe("");
+    expect(results[2].text.trim()).toBe("");
+    expect(results[1].text.trim().length).toBeGreaterThan(0);
+    await translator.dispose();
+  }, 600000);
 });

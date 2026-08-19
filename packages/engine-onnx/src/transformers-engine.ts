@@ -12,6 +12,13 @@ import {
 } from "@lite-translator/core";
 import { ENGINE_ID } from "./models.js";
 
+/**
+ * Maximum number of texts sent to the worker in a single batch request.
+ * Bounds memory pressure: the ONNX KV-cache grows with batch × sequence length.
+ * Batches larger than this are chunked into sequential worker roundtrips.
+ */
+const MAX_BATCH = 32;
+
 interface ProgressEventPayload {
   phase: string;
   loaded: number;
@@ -23,6 +30,7 @@ type WorkerResponse =
   | { kind: "progress"; id: number; event: ProgressEventPayload }
   | { kind: "loaded"; id: number }
   | { kind: "result"; id: number; text: string }
+  | { kind: "result"; id: number; texts: string[] }
   | { kind: "disposed"; id: number }
   | { kind: "error"; id: number; message: string };
 
@@ -95,7 +103,7 @@ export class TransformersEngine implements TranslationEngine {
       await this.load(pair);
     }
     const response = await this.#request({ kind: "translate", id: this.#nextId(), text });
-    if (response.kind !== "result") {
+    if (response.kind !== "result" || !("text" in response)) {
       throw new TranslatorError(
         ERROR_CODES.TRANSLATION_FAILED,
         response.kind === "error" ? response.message : "Unexpected worker response",
@@ -107,6 +115,49 @@ export class TransformersEngine implements TranslationEngine {
       to: pair.to,
       engine: this.id,
     };
+  }
+
+  /**
+   * Translates multiple texts in a single worker roundtrip via native ONNX
+   * batching. Input order is preserved; empty strings are passed through
+   * unchanged (not sent to the model). Batches larger than MAX_BATCH are
+   * chunked to bound memory pressure (KV-cache grows with batch × seq-len).
+   */
+  async translateBatch(
+    texts: string[],
+    pair: LanguagePair,
+  ): Promise<TranslationResult[]> {
+    this.#assertNotDisposed();
+    if (this.#loadedPair !== languagePairKey(pair)) {
+      await this.load(pair);
+    }
+    // Track which inputs are non-empty; empty strings pass through unchanged.
+    const nonEmptyIndices: number[] = [];
+    const nonEmptyTexts: string[] = [];
+    for (let i = 0; i < texts.length; i++) {
+      const text = texts[i]!;
+      if (text.length > 0) {
+        nonEmptyIndices.push(i);
+        nonEmptyTexts.push(text);
+      }
+    }
+
+    const translated: string[] = new Array(texts.length).fill("");
+    for (let i = 0; i < nonEmptyTexts.length; i += MAX_BATCH) {
+      const chunk = nonEmptyTexts.slice(i, i + MAX_BATCH);
+      const response = await this.#request({ kind: "translate", id: this.#nextId(), texts: chunk });
+      if (response.kind !== "result" || !("texts" in response)) {
+        throw new TranslatorError(
+          ERROR_CODES.TRANSLATION_FAILED,
+          response.kind === "error" ? response.message : "Unexpected worker response",
+        );
+      }
+      for (let j = 0; j < chunk.length; j++) {
+        translated[nonEmptyIndices[i + j]!] = response.texts[j] ?? "";
+      }
+    }
+
+    return translated.map((text) => ({ text, from: pair.from, to: pair.to, engine: this.id }));
   }
 
   /** Whether the engine knows this pair according to the registry (synchronously). */
@@ -241,7 +292,13 @@ export class TransformersEngine implements TranslationEngine {
   }
 
   #request(
-    message: { kind: "load" | "translate" | "dispose"; id: number; modelId?: string; text?: string },
+    message: {
+      kind: "load" | "translate" | "dispose";
+      id: number;
+      modelId?: string;
+      text?: string;
+      texts?: string[];
+    },
     onEvent?: (response: WorkerResponse) => void,
   ): Promise<WorkerResponse> {
     const worker = this.#ensureWorker();

@@ -71,6 +71,56 @@ async function handleTranslate() {
 </template>
 ```
 
+## Batch translation
+
+`translateBatch()` translates multiple texts in a single worker roundtrip. The
+ONNX engine uses native Transformers.js batching (`pipe([...])`) — one
+tokenization, encoder and decoder pass for the whole batch instead of N
+sequential roundtrips. Result order matches input order; empty strings are
+passed through unchanged. Batches larger than 32 texts are chunked automatically.
+
+```vue
+<script setup lang="ts">
+import { ref, shallowRef, onBeforeUnmount } from "vue";
+import { createTranslator, type Translator } from "@lite-translator/core";
+import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
+const outputs = ref<string[]>([]);
+const translator = shallowRef<Translator | null>(null);
+
+(async () => {
+  translator.value = await createTranslator({
+    from: "de",
+    to: "en",
+    engines: [createOnnxEngine()],
+  });
+})();
+
+onBeforeUnmount(() => {
+  void translator.value?.dispose();
+  translator.value = null;
+});
+
+async function handleBatch() {
+  if (!translator.value) return;
+  const results = await translator.value.translateBatch(inputs);
+  outputs.value = results.map((r) => r.text);
+}
+</script>
+
+<template>
+  <button @click="handleBatch">Translate all</button>
+  <ul>
+    <li v-for="(text, i) in outputs" :key="i">{{ text }}</li>
+  </ul>
+</template>
+```
+
+> **Performance:** For N short sentences, `translateBatch()` is typically 2–5×
+> faster than N individual `translate()` calls because the fixed inference cost
+> (session setup, KV-cache init, kernel dispatch) is paid once per batch.
+
 ## Notes
 
 - **`shallowRef` for the translator:** The translator is an object with methods and an internal worker; adding reactivity here would be overhead. `shallowRef` stores the reference without tracking it deeply.

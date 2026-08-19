@@ -24,4 +24,16 @@ console.log(result.text); // "Hello World"
 await translator.dispose();
 ```
 
+### Batch translation
+
+`translateBatch` sends all texts to the worker in a single roundtrip and uses
+Transformers.js native batching (`pipe([...])`) — one tokenization, encoder and
+decoder pass for the whole batch. Batches larger than 32 texts are chunked to
+bound memory pressure.
+
+```ts
+const results = await translator.translateBatch(["Hallo Welt", "Guten Morgen"]);
+console.log(results.map((r) => r.text)); // ["Hello World", "Good morning"]
+```
+
 The engine downloads models lazily on first use. To preload explicitly, call `await translator.preload()`.

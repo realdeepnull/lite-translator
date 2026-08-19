@@ -25,6 +25,10 @@ export interface BenchMetrics {
   warmMeanMs: number;
   /** Number of warm iterations. */
   warmIterations: number;
+  /** Time for a single translateBatch() call over the quality-case inputs, in ms. */
+  batchTranslateMs: number;
+  /** Number of texts passed to the benchmark translateBatch() call. */
+  batchInputsCount: number;
   /** Total bytes of model files in Cache Storage (sum of response bodies). */
   modelSizeBytes: number;
   /** Number of model files found in Cache Storage. */

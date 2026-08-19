@@ -14,7 +14,7 @@
     "format:check": "prettier --check .",
     "knip": "knip",
     "size": "size-limit",
-    "pack:check": "npm run build && publint --workspace && attw --workspace",
+    "pack:check": "npm run build && npm run publint --workspaces --if-present && npm run attw --workspaces --if-present",
     "test:quality": "vitest run --config bench/quality/vitest.config.ts",
     "bench:bundle": "node --experimental-strip-types bench/benchmark/bundle-size.ts",
     "bench": "npm run build && node --experimental-strip-types bench/benchmark/run.ts"
