@@ -79,8 +79,8 @@ describe("TransformersEngine (Browser)", () => {
       expect(r.text.trim().length).toBeGreaterThan(0);
     }
     // Plausibilität: einzelne Batch-Übersetzung stimmt mit Einzel-Übersetzung überein.
-    const single = await translator.translate(inputs[1]);
-    expect(results[1].text).toBe(single.text);
+    const single = await translator.translate(inputs[1]!);
+    expect(results[1]!.text).toBe(single.text);
     await translator.dispose();
   }, 600000);
 
@@ -90,9 +90,9 @@ describe("TransformersEngine (Browser)", () => {
     const results = await translator.translateBatch(["", "Hallo", ""]);
     expect(results).toHaveLength(3);
     // Leerstring-Eingabe liefert leeren (oder whitespace-only) Output, kein Content-Loss.
-    expect(results[0].text.trim()).toBe("");
-    expect(results[2].text.trim()).toBe("");
-    expect(results[1].text.trim().length).toBeGreaterThan(0);
+    expect(results[0]!.text.trim()).toBe("");
+    expect(results[2]!.text.trim()).toBe("");
+    expect(results[1]!.text.trim().length).toBeGreaterThan(0);
     await translator.dispose();
   }, 600000);
 });

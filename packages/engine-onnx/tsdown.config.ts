@@ -14,5 +14,7 @@ export default defineConfig({
   // lauffähig sind. @huggingface/transformers ist eine schwere WASM-Dep
   // und muss im Worker besonders inline sein, da Browser Bare Imports
   // im Worker nicht auflösen können.
-  noExternal: ["@lite-translator/core", "@huggingface/transformers"],
+  deps: {
+    alwaysBundle: ["@lite-translator/core", "@huggingface/transformers"],
+  },
 });

@@ -20,22 +20,22 @@
     "bench": "npm run build && node --experimental-strip-types bench/benchmark/run.ts"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
+    "@eslint/js": "^10.0.1",
     "@lite-translator/core": "*",
     "@lite-translator/engine-onnx": "*",
-    "@size-limit/preset-small-lib": "^11.1.6",
-    "@vitest/browser": "^3.0.0",
-    "eslint": "^9.14.0",
-    "knip": "^5.38.0",
-    "playwright": "^1.49.0",
-    "prettier": "^3.3.3",
-    "size-limit": "^11.1.6",
-    "typescript": "^5.6.3",
-    "typescript-eslint": "^8.14.0",
-    "vitest": "^3.0.0"
+    "@size-limit/preset-small-lib": "^13.0.3",
+    "@vitest/browser": "^3.2.7",
+    "eslint": "^10.8.1",
+    "knip": "^6.32.2",
+    "playwright": "^1.62.1",
+    "prettier": "^3.9.6",
+    "size-limit": "^13.0.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^3.2.7"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "packageManager": "npm@11.0.0"
 }

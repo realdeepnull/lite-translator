@@ -3,7 +3,6 @@
   "include": ["src", "tests", "tsdown.config.ts", "vitest.config.ts"],
   "compilerOptions": {
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
       "@lite-translator/core": ["../core/src/index.ts"]
     }

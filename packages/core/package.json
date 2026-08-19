@@ -37,9 +37,9 @@
   "license": "MIT",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "publint": "^0.3.23",
-    "tsdown": "^0.9.0",
-    "vitest": "^3.0.0"
+    "publint": "^0.3.24",
+    "tsdown": "^0.22.14",
+    "vitest": "^3.2.7"
   },
   "size-limit": [
     {
