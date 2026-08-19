@@ -14,17 +14,25 @@
     "format:check": "prettier --check .",
     "knip": "knip",
     "size": "size-limit",
-    "pack:check": "npm run build && publint --workspace && attw --workspace"
+    "pack:check": "npm run build && publint --workspace && attw --workspace",
+    "test:quality": "vitest run --config bench/quality/vitest.config.ts",
+    "bench:bundle": "node --experimental-strip-types bench/benchmark/bundle-size.ts",
+    "bench": "npm run build && node --experimental-strip-types bench/benchmark/run.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@lite-translator/core": "*",
+    "@lite-translator/engine-onnx": "*",
     "@size-limit/preset-small-lib": "^11.1.6",
+    "@vitest/browser": "^3.0.0",
     "eslint": "^9.14.0",
     "knip": "^5.38.0",
+    "playwright": "^1.49.0",
     "prettier": "^3.3.3",
     "size-limit": "^11.1.6",
     "typescript": "^5.6.3",
-    "typescript-eslint": "^8.14.0"
+    "typescript-eslint": "^8.14.0",
+    "vitest": "^3.0.0"
   },
   "engines": {
     "node": ">=18"

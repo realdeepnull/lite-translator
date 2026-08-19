@@ -24,3 +24,28 @@ jobs:
       - run: npm run test --workspace @lite-translator/engine-onnx
         env:
           CI: "true"
+      # Quality suite — CI gate (fails on translation regressions)
+      - run: npm run test:quality
+        env:
+          CI: "true"
+
+  benchmark:
+    runs-on: ubuntu-latest
+    # Report only — no threshold gating (HF download + browser variance)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install chromium --with-deps
+      - run: npm run bench
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-report
+          path: bench/report/

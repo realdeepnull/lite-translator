@@ -1,31 +1,42 @@
 # Roadmap
 
-## Phase 0 — Foundation
+Lite Translator is a small, local, offline-capable browser library. The core remains engine-independent; models and runtimes are loaded only when needed.
 
-**Goal:** Set up the project cleanly from a technical perspective.
+## Principles
 
-- Initialize the TypeScript project
-- Define the npm package structure
-- Set up the build system
-- ESM support
-- Ship TypeScript types
-- Linting and formatting
-- Unit test setup
-- CI for builds and tests
-- `AGENTS.md`
-- `README.md`
-- Define the license
-- Finalize package names
+- Translation text never leaves the browser.
+- External translation providers, Google Translate, cloud APIs, and cloud fallbacks are excluded.
+- The Fast Path remains usable without any Smart Path dependency.
+- No model is embedded in the core bundle.
+- New language pairs and engines must not break the public API.
 
-**Result:** A publishable npm package with no functionality yet.
+## Timeline
+
+The following timeline combines phases and releases into a single chronological sequence. Each step carries a status reflecting the current code state.
+
+Legend: ✅ done · 🟡 partial · ⬜ open
 
 ---
 
-## Phase 1 — Core API
+### Step 1 — Foundation
 
-**Goal:** Define the public API before integrating a concrete ML runtime.
+**Status:** ✅ Done
 
-Planned API:
+A clean, publishable TypeScript project without translation functionality.
+
+- npm-workspaces monorepo with `@lite-translator/core` and `@lite-translator/engine-onnx`
+- TypeScript, ESM, build (tsdown), types and bundling
+- Linting (ESLint + typescript-eslint), formatting (Prettier), unit tests (Vitest), CI
+- `AGENTS.md`, `README.md`, license
+- knip, size-limit, publint, attw
+
+---
+
+### Step 2 — Core API & Engine Interface
+
+**Status:** ✅ Done
+
+A small public API and a runtime-independent engine contract.
 
 ```ts
 const translator = await createTranslator({
@@ -33,80 +44,47 @@ const translator = await createTranslator({
   to: "en",
 });
 
-const result = await translator.translate(
-  "Hallo Welt"
-);
+const result = await translator.translate("Hallo Welt");
+console.log(result.text);
 ```
 
-Implement:
+Implemented:
 
-- `createTranslator()`
-- `Translator`
-- `TranslationResult`
-- Language codes
-- Error classes
-- `dispose()`
-- `preload()`
-- `isReady()`
+- `createTranslator()`, `Translator`, `TranslationResult`
+- language pairs, error classes and defined error codes
+- `preload()`, `isReady()`, `isCached()`, `dispose()`
+- `TranslationEngine` with `supports()`, `isCached()`, `load()`, `translate()`, `dispose()`
 
-Define the engine interface:
-
-```ts
-interface TranslationEngine {
-  supports(pair: LanguagePair): boolean;
-
-  load(pair: LanguagePair): Promise<void>;
-
-  translate(
-    text: string
-  ): Promise<TranslationResult>;
-
-  dispose(): Promise<void>;
-}
-```
-
-**Important:** The core must not know about any concrete runtime.
+The core does not know about any concrete ML runtime.
 
 ---
 
-## Phase 2 — First Fast-Path Engine
+### Step 3 — DE ↔ EN Fast Path
 
-**Goal:** The first real local translation in the browser.
+**Status:** ✅ Done
 
-Only the following language directions will initially be supported:
+Local translation between German and English in the browser.
 
-```text
-German → English
-English → German
-```
+- `de → en` and `en → de`
+- quantized OPUS-MT models via Transformers.js
+- tokenizer, runtime, inference and output normalization integrated
+- browser test translates "Hallo Welt" locally
+- core ~1 kB gzip
 
-Tasks:
-
-- select a suitable tiny MT model
-- determine the model format
-- choose the runtime
-- integrate the tokenizer
-- load the model
-- implement inference
-- normalize the output
-- implement error handling
-
-### Target sizes
-
-```text
-Model: preferably ~20–30 MB
-Core: preferably <100 KB gzip
-```
-
-**Milestone:** `"Hallo Welt"` is translated completely locally in the browser.
+**Milestone:** `"Hallo Welt"` is translated completely locally.
 
 ---
 
-## Phase 3 — Model Registry
+### Step 4 — Model Registry
 
-**Goal:** Avoid hard-coding models directly in the code.
+**Status:** ✅ Done
 
-Example:
+Models are not hard-coded into application logic.
+
+- `ModelDescriptor` (id, version, engine, engineModelId, files, metadata)
+- `ModelFile` (url, size, sha256)
+- `ModelRegistry` / `StaticModelRegistry`
+- `createStaticRegistry()` and `preloadRegistry()`
 
 ```ts
 {
@@ -119,456 +97,222 @@ Example:
 }
 ```
 
-The registry manages:
-
-- language pair → model
-- model version
-- download URLs
-- file size
-- checksums
-- engine compatibility
-- update strategy
-
-This allows additional language pairs to be added later without changing the core API.
-
 ---
 
-## Phase 4 — Lazy Loading & Download
+### Step 5 — Lazy Loading & Downloads
 
-**Goal:** Keep the npm package itself small.
+**Status:** ✅ Done
 
-An import:
+Keep the import small, no automatic model downloads.
 
-```ts
-import {
-  createTranslator
-} from "translator-package";
-```
-
-must not automatically download a model.
-
-Only when:
-
-```ts
-await translator.preload();
-```
-
-or:
-
-```ts
-await translator.translate(text);
-```
-
-are the required runtime and model files loaded.
-
-Implement:
-
-- lazy loading
-- model download
-- runtime download
-- download progress
-- handling of interrupted downloads
-
-Example:
+- model/runtime are loaded only on `preload()`/`translate()`
+- progress events via `onProgress`
+- downloads from the Hugging Face Hub
+- interrupted downloads are handled via Transformers.js cache storage
 
 ```ts
 const translator = await createTranslator({
   from: "de",
   to: "en",
-
   onProgress(progress) {
     console.log(progress);
-  }
+  },
 });
 ```
 
 ---
 
-## Phase 5 — Offline Cache
+### Step 6 — Cache & Offline Operation
 
-**Goal:** After the first download, translation should work offline.
+**Status:** ✅ Done
 
-Implement:
+Translation without a network connection after the first download.
 
-- persistent model cache
-- model versions
-- cache invalidation
-- detecting existing models
-- deleting a model
-- offline error states
-
-Possible API:
-
-```ts
-await translator.isCached();
-```
-
-Later optional:
-
-```ts
-await translator.removeModel();
-```
-
-### Milestone
-
-1. Download the model
-2. Put the browser offline
-3. Reload the page
-4. Translation continues to work
+- persistent cache via browser Cache Storage
+- `isCached()`
+- clear `OFFLINE_MODEL_MISSING` error when offline
+- `removeModel()` deliberately deferred (optional)
 
 ---
 
-## Phase 6 — Web Worker
+### Step 7 — Web Worker
 
-**Goal:** Translation work must not block the UI.
+**Status:** ✅ Done
 
-Architecture:
+Keep the UI responsive during inference.
 
-```text
-Main Thread
-     │
-     ▼
-Web Worker
-     │
-     ▼
-Translation Engine
-     │
-     ▼
-Model
-```
-
-Implement:
-
-- worker lifecycle
-- worker messaging
-- request IDs
+- worker lifecycle management
+- request IDs and sequential processing
 - error propagation
-- control parallel requests
-- release resources with `dispose()`
-
-The application should remain responsive even while a translation is running.
+- `dispose()` cleanup in `TransformersEngine`/`worker.ts`
 
 ---
 
-## Phase 7 — Live Translation
+### Step 8 — Quality & Benchmarks
 
-**Goal:** Enable translation while text is being typed.
+**Status:** ✅ Done
 
-Example:
+Make quality, size and performance measurable.
+
+- quality suite with curated de→en cases: chat, UI, technical text, numbers, negations, typos, colloquial language, idioms, long sentences, incomplete live input (`bench/quality/`)
+- critical-failure checks: flipped/lost negation, dropped/changed numbers, omitted/empty/reversed output
+- CI gate: `npm run test:quality` fails on translation regressions
+- benchmark suite: cold start, first translation, warm translation (median / p95 / mean), model size via Cache Storage (`bench/benchmark/`)
+- bundle-size script: core + engine-onnx gzip sizes via Node (`bench:bundle`)
+- report output: `bench/report/benchmark-<ISO>.json` + `bench/report/summary.md` (gitignored)
+- memory usage deliberately excluded (non-standard `performance.memory`, unreliable across browsers)
+
+---
+
+### Step 9 — Batch Translation
+
+**Status:** ⬜ Open
+
+`translateBatch()` as a prerequisite for v0.1.
+
+- `translateBatch()` on `Translator` and `TranslationEngine`
+- native ONNX-worker batching with a safe sequential fallback
+- stable ordering, empty-input support, bounded batches or chunking
+- full compatibility with single-text `translate()`
+
+---
+
+### Step 10 — Live Translation
+
+**Status:** ⬜ Open
+
+Translation while typing without unnecessary inference.
 
 ```ts
-const live = translator.createLiveSession({
-  debounce: 250
-});
+const live = translator.createLiveSession({ debounce: 250 });
 
-live.on("translation", result => {
+live.on("translation", (result) => {
   console.log(result.text);
 });
 
-live.update(
-  "I wanted to ask whether..."
-);
+live.update("Hallo wie geht es dir?");
 ```
 
-Implement:
-
-- debounce
-- request cancellation
-- return only the newest result
-- do not translate identical inputs again
-- optionally simple sentence or paragraph segmentation
-
-Real token streaming is not required for the MVP.
+- `createLiveSession()` is not yet implemented
+- batching of input, discarding outdated results, avoiding identical requests
+- optional simple segmentation; token streaming not required
 
 ---
 
-## Phase 8 — Benchmark & Quality
+### Step 11 — Release v0.1
 
-**Goal:** Make quality, model size, and performance measurable.
+**Status:** 🟡 Partial
 
-### Quality categories
+MVP release: local translation `de ↔ en` with full lifecycle.
 
-Test cases for:
+Done:
 
-- normal chats
-- UI text
-- technical text
-- numbers
-- negations
-- typos
-- colloquial speech
-- idioms
-- ambiguous terms
-- long sentences
-- incomplete live input
+- TypeScript API, engine abstraction, `de ↔ en`, local inference
+- lazy loading, model cache, offline, web worker
+- `translate()`, `preload()`, `dispose()`, progress events, error codes
+- basic tests and browser demo
 
-Errors that are especially critical:
+Missing:
 
-```text
-❌ Negation changed
-❌ Number changed
-❌ Text omitted
-❌ Meaning reversed
-```
-
-### Performance
-
-Measure:
-
-```text
-Cold Start
-Model Download
-Model Initialization
-First Translation
-Warm Translation
-Memory Usage
-Core Bundle Size
-Model Size
-```
-
-The benchmark helps decide which model becomes the default fast path.
+- `translateBatch()` (Step 9)
+- live translation (Step 10)
 
 ---
 
-# Version 0.1.0
+### Step 12 — Developer Experience (v0.2)
 
-The first public npm version should appear when the following features work reliably:
+**Status:** 🟡 Partial
 
-- TypeScript API
-- engine abstraction
-- German → English
-- English → German
-- local inference
-- lazy loading
-- model cache
-- offline mode
-- web worker
-- `translate()`
-- `preload()`
-- `dispose()`
-- progress events
-- defined error codes
-- basic tests
-- browser demo
+Better debug output, cache management and integration.
 
-## Not required for `0.1.0`
+Done:
 
-- WebLLM
-- Smart Path
-- automatic language detection
-- speech-to-text
-- text-to-speech
-- cloud APIs
-- large universal models
-- support for many languages
+- integration examples for Vanilla JS, React, Vue and Angular
 
----
+Missing:
 
-# Version 0.2 — Developer Experience
-
-**Goal:** Improve integration for developers.
-
-Planned:
-
-- better debug output
+- debug output
 - `capabilities()`
-- extended cache management
+- cache management
 - performance metrics
-- improved live sessions
-- `AbortSignal` support
-
-Example:
-
-```ts
-await translator.translate(text, {
-  signal
-});
-```
-
-Additional examples for:
-
-- Vanilla JavaScript
-- React
-- Vue
-- Svelte
+- better live sessions
+- `AbortSignal`
+- Svelte example
 
 ---
 
-# Version 0.3 — More Languages
+### Step 13 — More Languages (v0.3)
 
-Only after German ↔ English is stable will additional language pairs be added.
+**Status:** ⬜ Open
 
-For example:
+Additional language pairs after German/English are stable.
 
-```text
-DE ↔ EN
-FR ↔ EN
-ES ↔ EN
-IT ↔ EN
-NL ↔ EN
-```
+- only `de ↔ en` registered; no other language pairs
+- planned: `FR ↔ EN`, `ES ↔ EN`, `IT ↔ EN`, `NL ↔ EN`
+- models remain demand-loaded
 
-Models will still be loaded only when needed.
+---
 
-The goal remains:
+### Step 14 — Engine Ecosystem (v0.4)
 
-```text
-small core
-     │
-     ▼
-requested language pair
-     │
-     ▼
-small specialized model
-```
+**Status:** 🟡 Partial
 
-Not:
+Additional local engines without changing the public API.
+
+Done:
+
+- `@lite-translator/engine-onnx` exists
+
+Missing:
+
+- another local engine package (e.g. `@lite-translator/engine-wasm`)
 
 ```text
-large universal model for all languages
+@lite-translator/core
+@lite-translator/engine-wasm
+@lite-translator/engine-onnx
 ```
 
 ---
 
-# Version 0.4 — Engine Ecosystem
+### Step 15 — Evaluate Smart Path (v0.5)
 
-**Goal:** Put engine independence to work.
+**Status:** ⬜ Open
 
-Possible packages:
+An optional Smart Path as a separate local engine.
 
-```text
-@translator/core
-@translator/engine-wasm
-@translator/engine-browser
-@translator/engine-onnx
-```
-
-The public API stays independent of the engine:
-
-```ts
-await translator.translate(text);
-```
-
-Alternative engines must not require changes to normal application code.
+- not yet started
+- e.g. a small local LLM or a larger local MT model
+- must never be required by the Fast Path
+- provider APIs and cloud fallbacks remain excluded
 
 ---
 
-# Version 0.5 — Evaluate Smart Path
+### Step 16 — Release 1.0
 
-Only at that point will we decide whether to add a Smart Path as well.
+**Status:** ⬜ Open
 
-Possible technologies:
+Stable API and engine contracts, multiple language pairs, reproducible benchmarks.
 
-- WebLLM
-- Qwen or other small LLMs
-- browser-native translator APIs
-- larger MT models
-- context translation
-- glossaries
-- translation memory
-
-The Smart Path must be implemented as a separate engine.
-
-```text
-Fast Path
-    │
-    ▼
-Tiny MT
-~20–30 MB
-```
-
-Optional:
-
-```text
-Smart Path
-    │
-    ▼
-Context-aware Engine
-```
-
-### Core architectural rule
-
-> The Smart Path must never become a dependency of the Fast Path.
-
-The Fast Path must remain independently small, local, and offline-capable.
-
----
-
-# Version 1.0
-
-`1.0` represents a stable TypeScript library for local, offline-capable, privacy-friendly browser translation with interchangeable engines and a long-term stable API.
-
-For `1.0`, the following should be guaranteed in particular:
-
-- stable public API
-- documented engine interface
+- stable API and engine contracts
 - multiple language pairs
 - reproducible benchmarks
-- offline support
-- persistent model cache
-- cache management
-- web worker support
-- live translation
+- offline, cache management, worker support, live translation
 - good browser compatibility
-- semantic versioning
-- no unexpected network requests
-- no transmission of translated text
+- no transmission of translation text
 
----
-
-# Prioritization
-
-Development ideally proceeds in this order:
-
-```text
-1. Core API
-      ↓
-2. Engine Interface
-      ↓
-3. DE → EN Fast Path
-      ↓
-4. EN → DE Fast Path
-      ↓
-5. Benchmark
-      ↓
-6. Cache + Offline
-      ↓
-7. Web Worker
-      ↓
-8. Live Translation
-      ↓
-9. npm v0.1
-      ↓
-10. more languages
-      ↓
-11. more engines
-      ↓
-12. optional Smart Path
-```
-
----
-
-# Most important MVP milestone
-
-The most important milestone is a convincing `v0.1`, where a developer needs only a few lines:
+## MVP Milestone
 
 ```bash
-npm install translator-package
+npm install @lite-translator/core
 ```
 
 ```ts
-import { createTranslator } from "translator-package";
+import { createTranslator } from "@lite-translator/core";
 
-const translator = await createTranslator({
-  from: "de",
-  to: "en"
-});
-
-const result = await translator.translate(
-  "Hallo Welt"
-);
-
+const translator = await createTranslator({ from: "de", to: "en" });
+const result = await translator.translate("Hallo Welt");
 console.log(result.text);
 ```
 
-The translation should then happen **locally, offline-capable, and without sending the text to an external server**.
+Translation runs locally, works offline after setup, and does not transmit input text to external systems.

@@ -2,38 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/lang/de/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Quality and benchmark infrastructure in `bench/`:
+  - Quality suite (`bench/quality/`): curated de→en cases (chat, UI, technical,
+    numbers, negations, typos, colloquial, idioms, long sentences, live input)
+    with per-case assertions and critical-failure checks (flipped/lost negation,
+    changed numbers, empty/reversed content). CI gate via `npm run test:quality`.
+  - Benchmark suite (`bench/benchmark/`): cold start, first/warm translation
+    (median/p95/mean), model size via Cache Storage, bundle gzip sizes via Node.
+    Reports to `bench/report/` (JSON + Markdown, gitignored).
+  - Scripts: `test:quality`, `bench`, `bench:bundle`.
+  - CI: `test:quality` as gate; `benchmark` job uploads report artifact.
+
 ### Fixed
 
-- `@lite-translator/engine-onnx`: Worker setzt jetzt `env.allowLocalModels = false`.
-  Zuvor versuchte Transformers.js, Modell-Dateien unter einem relativen Pfad zur
-  Konsumenten-Origin zu laden. Bei SPA-Servern mit HTML-Fallback (z.B. Angular/Vite
-  Dev-Server) liefert jede URL `index.html` mit Status 200 zurück, sodass Transformers.js
-  dieses HTML als ONNX-Protobuf parsen wollte und mit einem Parsing-Fehler scheiterte.
-  Modelle werden nun ausschließlich vom Hugging Face Hub geladen.
+- `@lite-translator/engine-onnx`: Worker sets `env.allowLocalModels = false`.
+  Previously Transformers.js tried loading model files from a relative consumer
+  path; SPA servers with HTML fallback returned `index.html` (200), causing an
+  ONNX protobuf parse error. Models now load exclusively from the Hugging Face Hub.
 
 ### Added
 
-- Initial MVP setup as an npm-workspaces monorepo with two packages:
-  - `@lite-translator/core` — dependency-free, engine-agnostic translation API
-    - `createTranslator()` with `preload()`, `translate()`, `isReady()`, `isCached()`, `dispose()`
-    - `TranslationEngine` interface for pluggable engines
-    - Defined error codes (`MODEL_NOT_AVAILABLE`, `MODEL_DOWNLOAD_FAILED`, `MODEL_LOAD_FAILED`,
-      `LANGUAGE_PAIR_NOT_SUPPORTED`, `ENGINE_NOT_SUPPORTED`, `OUT_OF_MEMORY`,
-      `TRANSLATION_FAILED`, `OFFLINE_MODEL_MISSING`)
-    - Model registry abstraction (`ModelRegistry`, `StaticModelRegistry`, `createStaticRegistry`,
-      `preloadRegistry`) with exchangeable model URLs
-    - No runtime dependencies; core bundle ~1 kB gzipped
-  - `@lite-translator/engine-onnx` — local MT engine powered by Transformers.js in a Web Worker
-    - Quantized OPUS-MT models for German → English and English → German (loaded from the Hugging Face Hub)
-    - Lazy model download with progress events (`onProgress`)
-    - Persistent offline cache via browser Cache Storage (works offline after first download)
-    - Worker lifecycle management with `dispose()`
-- Toolchain: TypeScript, tsdown (ESM + declarations), Vitest (+ Browser Mode with Playwright/Chromium),
-  ESLint + typescript-eslint, Prettier, publint, Are The Types Wrong, knip, size-limit
-- CI workflow (build, typecheck, lint, knip, unit tests, browser tests)
-- Browser demo in [examples/demo/index.html](examples/demo/index.html)
+- Initial MVP: npm-workspaces monorepo with two packages.
+  - `@lite-translator/core` — dependency-free, engine-agnostic API:
+    `createTranslator()` (`preload`, `translate`, `isReady`, `isCached`, `dispose`),
+    `TranslationEngine` interface, error codes, model registry
+    (`createStaticRegistry`, `preloadRegistry`), core ~1 kB gzip.
+  - `@lite-translator/engine-onnx` — Transformers.js in a Web Worker:
+    quantized OPUS-MT de↔en, lazy download with `onProgress`, offline cache
+    via Cache Storage, `dispose()` lifecycle.
+- Toolchain: TypeScript, tsdown, Vitest (+ Browser/Playwright), ESLint, Prettier,
+  publint, attw, knip, size-limit.
+- CI workflow and browser demo (`examples/demo/index.html`).
