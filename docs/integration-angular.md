@@ -126,11 +126,11 @@ The error then looks roughly like this:
 
 **Both fixes are required and complement each other:**
 
-| Problem | Library fix (`noExternal`) | Consumer fix (`optimizeDeps.exclude`) |
-| ------- | -------------------------- | -------------------------------------- |
-| `@huggingface/transformers` cannot be prebundled in the worker | ✅ fixes it | irrelevant |
-| Vite cannot find `worker.js` in the deps directory | ❌ does not fix it | ✅ fixes it |
-| `new URL("./worker.js", import.meta.url)` is resolved incorrectly | ❌ does not fix it | ✅ fixes it |
+| Problem                                                           | Library fix (`noExternal`) | Consumer fix (`optimizeDeps.exclude`) |
+| ----------------------------------------------------------------- | -------------------------- | ------------------------------------- |
+| `@huggingface/transformers` cannot be prebundled in the worker    | ✅ fixes it                | irrelevant                            |
+| Vite cannot find `worker.js` in the deps directory                | ❌ does not fix it         | ✅ fixes it                           |
+| `new URL("./worker.js", import.meta.url)` is resolved incorrectly | ❌ does not fix it         | ✅ fixes it                           |
 
 Add the package to `angular.json` under the `build` target of the application builder. In Angular 22 (Vite-based), the option is `optimizeDeps.exclude` (which corresponds to Vite's `optimizeDeps.exclude` and the newer `prebundle.exclude`):
 
@@ -203,13 +203,13 @@ The modern, esbuild-based Angular builder does not automatically detect and emit
     "output": "."
   },
   {
-    "glob": "ort-wasm-simd-threaded.jsep.mjs",
-    "input": "node_modules/@lite-translator/engine-onnx/dist",
+    "glob": "ort-wasm-simd-threaded.asyncify.mjs",
+    "input": "node_modules/onnxruntime-web/dist",
     "output": "."
   },
   {
-    "glob": "ort-wasm-simd-threaded.jsep.wasm",
-    "input": "node_modules/@lite-translator/engine-onnx/dist",
+    "glob": "ort-wasm-simd-threaded.asyncify.wasm",
+    "input": "node_modules/onnxruntime-web/dist",
     "output": "."
   }
 ]

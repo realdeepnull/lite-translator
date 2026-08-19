@@ -11,8 +11,8 @@ const HF_BASE = "https://huggingface.co";
  * smaller models for testing.
  */
 export const defaultModelIds: Record<string, string> = {
-  "de-en": import.meta.env?.VITE_MODEL_ID_DE_EN ?? "Xenova/opus-mt-de-en",
-  "en-de": import.meta.env?.VITE_MODEL_ID_EN_DE ?? "Xenova/opus-mt-en-de",
+  "de-en": import.meta.env?.VITE_MODEL_ID_DE_EN ?? "onnx-community/opus-mt-de-en",
+  "en-de": import.meta.env?.VITE_MODEL_ID_EN_DE ?? "onnx-community/opus-mt-en-de",
 };
 
 /** Creates the static model registry for the given pair-to-model-ID entries. */
@@ -29,8 +29,8 @@ export function createDefaultRegistry(modelIds: Record<string, string>) {
         { url: `${HF_BASE}/${modelId}/resolve/main/config.json` },
         { url: `${HF_BASE}/${modelId}/resolve/main/tokenizer.json` },
         { url: `${HF_BASE}/${modelId}/resolve/main/generation_config.json` },
-        { url: `${HF_BASE}/${modelId}/resolve/main/onnx/encoder_model_quantized.onnx` },
-        { url: `${HF_BASE}/${modelId}/resolve/main/onnx/decoder_model_merged_quantized.onnx` },
+        { url: `${HF_BASE}/${modelId}/resolve/main/onnx/encoder_model_bnb4.onnx` },
+        { url: `${HF_BASE}/${modelId}/resolve/main/onnx/decoder_model_merged_bnb4.onnx` },
       ],
       metadata: { source: "huggingface" },
     };

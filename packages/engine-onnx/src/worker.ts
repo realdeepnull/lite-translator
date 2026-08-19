@@ -112,8 +112,14 @@ async function handleLoad(id: number, modelId: string): Promise<void> {
           post({ kind: "progress", id, event });
         }
       };
+      // v4 defaults to WebGPU, which is unavailable in many environments
+      // (headless browsers, older browsers, no GPU). Use WASM + bnb4 as the
+      // safe default until WebGPU capability detection is implemented.
+      // (q8/int8/uint8 all trigger MatMulNBits regression in v4's onnxruntime-web;
+      //  bnb4 uses a different quantization graph that avoids the bug.)
       const created = (await pipeline("translation", modelId, {
-        dtype: "q8",
+        device: "wasm",
+        dtype: "bnb4",
         progress_callback: progressCallback,
       })) as unknown as PipelineInstance;
       pipe = created;

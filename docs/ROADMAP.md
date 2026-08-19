@@ -288,7 +288,31 @@ An optional Smart Path as a separate local engine.
 
 ---
 
-### Step 16 — Release 1.0
+### Step 16 — WebGPU Acceleration (v0.6)
+
+**Status:** ⬜ Open
+
+Use the GPU for faster inference when the browser supports WebGPU, with automatic fallback to WASM.
+
+- capability detection: check `navigator.gpu` availability before selecting the device
+- `device: "webgpu"` with `dtype: "fp16"` or `dtype: "q4f16"` when WebGPU is available
+- automatic fallback to `device: "wasm"` + `dtype: "fp32"` when WebGPU is unavailable or adapter creation fails
+- expose selected device/dtype via `capabilities()` or progress metadata
+- validate WebGPU support in the browser test environment (Playwright `--enable-unsafe-webgpu` flag or manual testing in a real browser)
+- benchmark comparison: WebGPU vs. WASM inference latency
+
+```ts
+// Planned: automatic device selection
+const engine = createOnnxEngine({
+  device: "auto", // "webgpu" if available, else "wasm"
+});
+```
+
+- `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — default `"auto"`
+
+---
+
+### Step 17 — Release 1.0
 
 **Status:** ⬜ Open
 

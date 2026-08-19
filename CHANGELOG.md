@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `@lite-translator/engine-onnx`: upgraded `@huggingface/transformers` to
+  `^4.2.0`. Models switched to `onnx-community/opus-mt-*`. Default config is
+  `wasm` + `bnb4` to work around v4's `onnxruntime-web` MatMulNBits regression.
+  Tarball 954 kB → 625 kB. WebGPU acceleration added to ROADMAP (Step 16).
+
 ## [0.1.0] — 2026-08-19
 
 ### Added
