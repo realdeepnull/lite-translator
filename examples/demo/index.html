@@ -1,57 +1,652 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>lite-translator Demo</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 44rem; padding: 0 1rem; }
-      textarea { width: 100%; min-height: 5rem; }
-      output { display: block; white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 6px; min-height: 2rem; }
-      button { margin: 0.5rem 0; }
-      details { margin-top: 1rem; font-size: 0.9em; color: #555; }
+      :root {
+        --bg: #0f1115;
+        --bg-soft: #161a22;
+        --bg-card: #1b212c;
+        --border: #2a3344;
+        --text: #e6edf3;
+        --text-muted: #9aa7b8;
+        --accent: #4c8dff;
+        --accent-hover: #6ba0ff;
+        --accent-soft: rgba(76, 141, 255, 0.12);
+        --success: #3fb950;
+        --warning: #d29922;
+        --error: #f85149;
+        --radius: 10px;
+        --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+        color-scheme: dark;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        background: radial-gradient(1200px 600px at 50% -10%, #1a2233 0%, var(--bg) 55%);
+        color: var(--text);
+        line-height: 1.6;
+        min-height: 100vh;
+      }
+
+      .wrap {
+        max-width: 60rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+
+      header { margin-bottom: 2rem; }
+
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.7rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      .subtitle {
+        color: var(--text-muted);
+        margin: 0;
+        font-size: 0.95rem;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-top: 0.6rem;
+        padding: 0.25rem 0.6rem;
+        background: var(--accent-soft);
+        border: 1px solid rgba(76, 141, 255, 0.3);
+        border-radius: 999px;
+        font-size: 0.78rem;
+        color: var(--accent);
+      }
+
+      .badge .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+      }
+
+      .badge.is-ready .dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+      .badge.is-busy .dot { background: var(--warning); box-shadow: 0 0 8px var(--warning); animation: pulse 1s ease-in-out infinite; }
+      .badge.is-error .dot { background: var(--error); box-shadow: 0 0 8px var(--error); }
+
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
+        margin: 1.25rem 0 1.5rem;
+      }
+
+      .progress {
+        flex: 1 1 100%;
+        height: 6px;
+        background: var(--bg-card);
+        border-radius: 999px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+      .progress > div {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+        transition: width 120ms ease;
+      }
+      .progress-label {
+        flex: 1 1 100%;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-top: -0.5rem;
+      }
+
+      .lang-select {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+      .lang-select select {
+        background: var(--bg-card);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.35rem 0.5rem;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .card {
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.25rem 1.25rem 1.4rem;
+        margin-bottom: 1.25rem;
+        box-shadow: var(--shadow);
+      }
+
+      .card > h2 {
+        margin: 0 0 0.1rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      .card > p.help {
+        margin: 0 0 1rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+
+      label.field {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-bottom: 0.35rem;
+        font-weight: 500;
+      }
+
+      textarea, input[type="text"] {
+        width: 100%;
+        background: var(--bg-card);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.7rem 0.85rem;
+        font: inherit;
+        line-height: 1.55;
+        resize: vertical;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+      textarea:focus, input[type="text"]:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      textarea.fliesstext { min-height: 7.5rem; }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 0.85rem;
+      }
+      @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+
+      .out {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.7rem 0.85rem;
+        min-height: 3rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 0.92rem;
+      }
+      .out.placeholder { color: var(--text-muted); font-style: italic; }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--bg-card);
+        color: var(--text);
+        padding: 0.55rem 1rem;
+        border-radius: 8px;
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+      }
+      button:hover { background: #222a39; border-color: #364056; }
+      button:active { transform: translateY(1px); }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin-bottom: 1rem;
+        cursor: pointer;
+        user-select: none;
+      }
+      .toggle input { display: none; }
+      .toggle .track {
+        width: 40px; height: 22px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        position: relative;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .toggle .track::after {
+        content: "";
+        position: absolute;
+        top: 2px; left: 2px;
+        width: 16px; height: 16px;
+        border-radius: 50%;
+        background: var(--text-muted);
+        transition: transform 160ms ease, background 120ms ease;
+      }
+      .toggle input:checked + .track {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+      }
+      .toggle input:checked + .track::after {
+        transform: translateX(18px);
+        background: var(--accent);
+      }
+      .toggle span { font-size: 0.9rem; }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        align-items: center;
+      }
+
+      .batch-item {
+        border-top: 1px dashed var(--border);
+        padding-top: 1rem;
+        margin-top: 1rem;
+      }
+      .batch-item:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+      .batch-item .meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 0.4rem;
+      }
+      .batch-item .meta .title { font-weight: 600; font-size: 0.95rem; }
+      .batch-item .meta .status {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .batch-item .status.is-done { color: var(--success); }
+      .batch-item .status.is-error { color: var(--error); }
+      .batch-item .status.is-busy { color: var(--warning); }
+
+      details {
+        margin-top: 1.5rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 0.85rem 1rem;
+      }
+      details > summary { cursor: pointer; color: var(--text); font-weight: 500; }
+      details code { background: var(--bg-card); padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+      footer {
+        margin-top: 2rem;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        text-align: center;
+      }
     </style>
   </head>
   <body>
-    <h1>lite-translator Demo (de → en)</h1>
-    <p>Local translation in the browser via @lite-translator/core + @lite-translator/engine-onnx.</p>
-    <textarea id="src" placeholder="Enter German text">Hallo Welt, wie geht es dir?</textarea>
-    <button id="run">Translate</button>
-    <output id="out" aria-live="polite"></output>
-    <progress id="bar" max="1" value="0" style="width:100%"></progress>
-    <details>
-      <summary>Prerequisite</summary>
-      Run <code>npm run build</code> in the repository first. This page loads the
-      local dist bundles of the workspace packages (no separate bundling).
-      The first translation downloads the quantized model from the Hugging Face Hub.
-    </details>
+    <div class="wrap">
+      <header>
+        <h1>lite-translator Demo</h1>
+        <p class="subtitle">Lokale Übersetzung im Browser — @lite-translator/core + @lite-translator/engine-onnx.</p>
+        <span class="badge" id="status"><span class="dot"></span><span id="status-text">Modell nicht geladen</span></span>
+      </header>
+
+      <div class="toolbar">
+        <div class="lang-select">
+          <select id="from" aria-label="Quellsprache">
+            <option value="de" selected>Deutsch</option>
+            <option value="en">Englisch</option>
+          </select>
+          →
+          <select id="to" aria-label="Zielsprache">
+            <option value="en" selected>Englisch</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </div>
+        <button id="preload" type="button">Modell vorladen</button>
+        <div class="progress"><div id="bar"></div></div>
+        <div class="progress-label" id="progress-label">Bereit.</div>
+      </div>
+
+      <!-- Live-Eingabe (für späteres Live-Übersetzen) -->
+      <section class="card">
+        <h2>Live-Eingabe</h2>
+        <p class="help">Eingabefeld für eine spätere Live-Übersetzung mit Debouncing. Heute wird beim Klick auf „Übersetzen“ einmalig übersetzt.</p>
+        <label class="field" for="src">Quelltext</label>
+        <textarea id="src" placeholder="Text eingeben …">Hallo Welt, wie geht es dir?</textarea>
+        <div class="actions" style="margin-top:0.85rem">
+          <button id="run" class="primary" type="button">Übersetzen</button>
+          <button id="clear-live" type="button">Leeren</button>
+        </div>
+        <div class="row" style="margin-top:0.85rem">
+          <div>
+            <label class="field">Quelltext</label>
+            <div class="out placeholder" id="src-mirror">(leer)</div>
+          </div>
+          <div>
+            <label class="field">Übersetzung</label>
+            <div class="out placeholder" id="out" aria-live="polite">(leer)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Batch-Übersetzung mehrerer Fließtexte -->
+      <section class="card">
+        <h2>Batch-Übersetzung</h2>
+        <p class="help">Mehrere längere Fließtexte auf einmal übersetzen. Der Toggle aktiviert die Abarbeitung aller Texte; ausgeschaltet wird nur der erste Text übersetzt.</p>
+
+        <label class="toggle" for="batch-all">
+          <input type="checkbox" id="batch-all" checked />
+          <span class="track"></span>
+          <span>Alle Texte übersetzen (Batch)</span>
+        </label>
+
+        <div id="batch"></div>
+
+        <div class="actions" style="margin-top:1rem">
+          <button id="run-batch" class="primary" type="button">Batch starten</button>
+          <button id="clear-batch" type="button">Ergebnisse leeren</button>
+        </div>
+      </section>
+
+      <details>
+        <summary>Voraussetzung</summary>
+        Zuerst <code>npm run build</code> im Repo ausführen. Diese Seite lädt die lokalen
+        <code>dist</code>-Bundles der Workspace-Pakete direkt (ohne separaten Bundler).
+        Die erste Übersetzung lädt das quantisierte Modell vom Hugging Face Hub.
+      </details>
+
+      <footer>lite-translator — Datenschutzfreundlich, lokal, offlinefähig.</footer>
+    </div>
+
     <script type="module">
       import { createTranslator } from "../../packages/core/dist/index.js";
       import { createOnnxEngine } from "../../packages/engine-onnx/dist/index.js";
 
-      const src = document.getElementById("src");
-      const out = document.getElementById("out");
-      const bar = document.getElementById("bar");
-      const btn = document.getElementById("run");
+      // ----- Beispielfließtexte (längere Texte für die Batch-Demo) -----
+      const sampleTexts = [
+        {
+          title: "Reisebericht",
+          text:
+            "Letzten Sommer bin ich mit dem Zug durch die Alpen gereist. " +
+            "Die Berge waren noch leicht verschneit und die Täler leuchteten in einem satten Grün. " +
+            "In jedem kleinen Dorf gab es eine andere Spezialität zu probieren — von Käse über Frischkäse bis hin zu hausgemachtem Apfelstrudel. " +
+            "Besonders im Gedächtnis geblieben ist mir der Sonnenaufgang über dem Mont Blanc, als die ersten Sonnenstrahlen die Gipfel golden färbten."
+        },
+        {
+          title: "Kurzgeschichte",
+          text:
+            "Die alte Bibliothek am Marktplatz roch nach Papier und Bohnerwachs. " +
+            "Hinter dem Tresen saß Frau Lindqvist, die seit zweiunddreißig Jahren jeden einzelnen Regalstand auswendig kannte. " +
+            "Wenn ein Besucher ein Buch suchte, schloss sie kurz die Augen, als riefe sie sich das richtige Regal herbei, und ging dann mit ruhigen Schritten zum richtigen Fach. " +
+            "Eines Tages jedoch fehlte ein Band, und niemand wusste, wohin es verschwunden war."
+        },
+        {
+          title: "Technologie-Kommentar",
+          text:
+            "Lokale Übersetzungsmodelle werden zunehmend leistungsfähig und können direkt im Browser laufen. " +
+            "Das spart Bandbreite, schützt die Privatsphäre der Nutzer und funktioniert auch ohne Netzwerkverbindung. " +
+            "Allerdings sind kleine Modelle naturgemäß weniger genau als große Cloud-Modelle — insbesondere bei idiomatischen Ausdrücken, Fachvokabular oder sehr langen Sätzen. " +
+            "Für die meisten Alltagstexte reichen sie jedoch völlig aus."
+        }
+      ];
 
-      btn.addEventListener("click", async () => {
-        out.value = "Loading model …";
+      // ----- DOM-Referenzen -----
+      const fromSel = document.getElementById("from");
+      const toSel = document.getElementById("to");
+      const preloadBtn = document.getElementById("preload");
+      const bar = document.getElementById("bar");
+      const progressLabel = document.getElementById("progress-label");
+      const statusEl = document.getElementById("status");
+      const statusText = document.getElementById("status-text");
+
+      const src = document.getElementById("src");
+      const srcMirror = document.getElementById("src-mirror");
+      const out = document.getElementById("out");
+      const runBtn = document.getElementById("run");
+      const clearLiveBtn = document.getElementById("clear-live");
+
+      const batchAllToggle = document.getElementById("batch-all");
+      const batchContainer = document.getElementById("batch");
+      const runBatchBtn = document.getElementById("run-batch");
+      const clearBatchBtn = document.getElementById("clear-batch");
+
+      // ----- Translator-Verwaltung (ein Translator pro Sprachpaar) -----
+      let translator = null;
+      let currentPair = null;
+      let isLoading = false;
+
+      function setStatus(state, text) {
+        statusEl.classList.remove("is-ready", "is-busy", "is-error");
+        if (state) statusEl.classList.add(`is-${state}`);
+        statusText.textContent = text;
+      }
+
+      function setProgress(value, label) {
+        bar.style.width = `${Math.round(value * 100)}%`;
+        if (label !== undefined) progressLabel.textContent = label;
+      }
+
+      async function getTranslator() {
+        const from = fromSel.value;
+        const to = toSel.value;
+        const pairKey = `${from}-${to}`;
+        if (translator && currentPair === pairKey) return translator;
+        if (translator) await translator.dispose();
+        translator = await createTranslator({
+          from,
+          to,
+          engines: [createOnnxEngine()],
+          onProgress: (e) => {
+            if (Number.isFinite(e.progress)) setProgress(e.progress, `Lade Modell … ${Math.round(e.progress * 100)}%`);
+          },
+        });
+        currentPair = pairKey;
+        return translator;
+      }
+
+      async function ensureReady() {
+        if (isLoading) {
+          while (isLoading) await new Promise((r) => setTimeout(r, 50));
+          return getTranslator();
+        }
+        const t = await getTranslator();
+        if (!t.isReady()) {
+          isLoading = true;
+          setStatus("busy", "Modell wird geladen …");
+          setProgress(0, "Lade Modell …");
+          try {
+            await t.preload();
+            setStatus("ready", "Modell bereit");
+            setProgress(1, "Modell bereit.");
+          } catch (err) {
+            setStatus("error", "Fehler beim Laden");
+            setProgress(0, "Fehler.");
+            throw err;
+          } finally {
+            isLoading = false;
+          }
+        } else {
+          setStatus("ready", "Modell bereit");
+        }
+        return t;
+      }
+
+      function formatError(err) {
+        return `Fehler: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+      }
+
+      // ----- Live-Section -----
+      function renderLive() {
+        const value = src.value.trim();
+        if (value) {
+          srcMirror.textContent = src.value;
+          srcMirror.classList.remove("placeholder");
+        } else {
+          srcMirror.textContent = "(leer)";
+          srcMirror.classList.add("placeholder");
+        }
+      }
+
+      runBtn.addEventListener("click", async () => {
+        runBtn.disabled = true;
+        out.textContent = "Übersetze …";
+        out.classList.remove("placeholder");
         try {
-          const translator = await createTranslator({
-            from: "de",
-            to: "en",
-            engines: [createOnnxEngine()],
-            onProgress: (e) => {
-              if (Number.isFinite(e.progress)) bar.value = e.progress;
-              bar.removeAttribute("value");
-            },
-          });
-          out.value = "Translating …";
-          const result = await translator.translate(src.value);
-          out.value = result.text;
-          bar.value = 1;
+          const t = await ensureReady();
+          const result = await t.translate(src.value);
+          out.textContent = result.text;
+          setStatus("ready", "Modell bereit");
         } catch (err) {
-          out.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+          out.textContent = formatError(err);
+          setStatus("error", "Fehler bei der Übersetzung");
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+
+      clearLiveBtn.addEventListener("click", () => {
+        src.value = "";
+        out.textContent = "(leer)";
+        out.classList.add("placeholder");
+        renderLive();
+      });
+
+      src.addEventListener("input", renderLive);
+      renderLive();
+
+      // ----- Batch-Section -----
+      function renderBatchItems() {
+        batchContainer.innerHTML = "";
+        for (const item of sampleTexts) {
+          const section = document.createElement("div");
+          section.className = "batch-item";
+          section.innerHTML = `
+            <div class="meta">
+              <span class="title">${item.title}</span>
+              <span class="status" data-status>ausstehend</span>
+            </div>
+            <div class="row">
+              <div>
+                <label class="field">Quelltext</label>
+                <textarea class="fliesstext" data-src>${item.text}</textarea>
+              </div>
+              <div>
+                <label class="field">Übersetzung</label>
+                <div class="out placeholder" data-out aria-live="polite">(nicht übersetzt)</div>
+              </div>
+            </div>
+          `;
+          batchContainer.appendChild(section);
+        }
+      }
+      renderBatchItems();
+
+      function getBatchItems() {
+        return [...batchContainer.querySelectorAll(".batch-item")].map((el) => ({
+          el,
+          src: el.querySelector("[data-src]"),
+          out: el.querySelector("[data-out]"),
+          status: el.querySelector("[data-status]"),
+        }));
+      }
+
+      async function translateOne(item, t) {
+        item.status.className = "status is-busy";
+        item.status.textContent = "läuft …";
+        item.out.classList.remove("placeholder");
+        item.out.textContent = "Übersetze …";
+        try {
+          const result = await t.translate(item.src.value);
+          item.out.textContent = result.text;
+          item.status.className = "status is-done";
+          item.status.textContent = "fertig";
+          return true;
+        } catch (err) {
+          item.out.textContent = formatError(err);
+          item.status.className = "status is-error";
+          item.status.textContent = "Fehler";
+          return false;
+        }
+      }
+
+      runBatchBtn.addEventListener("click", async () => {
+        const items = getBatchItems();
+        const runAll = batchAllToggle.checked;
+        const target = runAll ? items : items.slice(0, 1);
+
+        runBatchBtn.disabled = true;
+        setStatus("busy", runAll ? "Batch läuft …" : "Übersetze ersten Text …");
+
+        try {
+          const t = await ensureReady();
+          if (runAll) {
+            // Sequentielle Abarbeitung: die ONNX-Engine nutzt einen einzelnen
+            // Web Worker, parallele Requests würden sich nur gegenseitig blockieren.
+            let done = 0;
+            for (const item of target) {
+              await translateOne(item, t);
+              done += 1;
+              setProgress(done / target.length, `Batch: ${done}/${target.length} fertig`);
+            }
+          } else {
+            await translateOne(target[0], t);
+            setProgress(1, "Erster Text übersetzt.");
+          }
+          setStatus("ready", "Modell bereit");
+        } catch (err) {
+          setStatus("error", "Fehler beim Laden des Modells");
+          for (const item of target) {
+            item.out.textContent = formatError(err);
+            item.out.classList.remove("placeholder");
+            item.status.className = "status is-error";
+            item.status.textContent = "Fehler";
+          }
+        } finally {
+          runBatchBtn.disabled = false;
+        }
+      });
+
+      clearBatchBtn.addEventListener("click", () => {
+        for (const item of getBatchItems()) {
+          item.out.textContent = "(nicht übersetzt)";
+          item.out.classList.add("placeholder");
+          item.status.className = "status";
+          item.status.textContent = "ausstehend";
+        }
+        setProgress(0, "Ergebnisse geleert.");
+      });
+
+      // ----- Sprachwechsel & Vorladen -----
+      fromSel.addEventListener("change", () => { translator = null; currentPair = null; setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      toSel.addEventListener("change", () => { translator = null; currentPair = null; setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+
+      preloadBtn.addEventListener("click", async () => {
+        preloadBtn.disabled = true;
+        try {
+          await ensureReady();
+        } catch (err) {
+          // Fehler wird bereits in ensureReady gesetzt.
+        } finally {
+          preloadBtn.disabled = false;
         }
       });
     </script>
