@@ -5,12 +5,20 @@ import {
   languagePairKey,
   type LanguagePair,
   type ModelRegistry,
+  type ModelDescriptor,
   type ProgressCallback,
   type StaticModelRegistry,
   type TranslationEngine,
   type TranslationResult,
 } from "@lite-translator/core";
 import { ENGINE_ID } from "./models.js";
+import {
+  resolveDeviceDtype,
+  type OnnxDevice,
+  type OnnxDtype,
+  type ResolvedDevice,
+  type ResolvedDtype,
+} from "./webgpu.js";
 
 /**
  * Maximum number of texts sent to the worker in a single batch request.
@@ -18,6 +26,14 @@ import { ENGINE_ID } from "./models.js";
  * Batches larger than this are chunked into sequential worker roundtrips.
  */
 const MAX_BATCH = 32;
+
+/** ONNX filename suffix for each resolved dtype (matches Transformers.js). */
+const DTYPE_SUFFIX: Record<ResolvedDtype, string> = {
+  fp16: "_fp16",
+  fp32: "",
+  bnb4: "_bnb4",
+  q4f16: "_q4f16",
+};
 
 interface ProgressEventPayload {
   phase: string;
@@ -28,6 +44,7 @@ interface ProgressEventPayload {
 
 type WorkerResponse =
   | { kind: "progress"; id: number; event: ProgressEventPayload }
+  | { kind: "capabilities"; id: number; device: string; dtype: string }
   | { kind: "loaded"; id: number }
   | { kind: "result"; id: number; text: string }
   | { kind: "result"; id: number; texts: string[] }
@@ -48,14 +65,21 @@ export class TransformersEngine implements TranslationEngine {
   readonly id = ENGINE_ID;
 
   readonly #registry: StaticModelRegistry;
+  readonly #device: OnnxDevice;
+  readonly #dtype: OnnxDtype | undefined;
   #worker: Worker | undefined;
   #disposed = false;
   #loadedPair: string | undefined;
   #loadPromise: Promise<void> | undefined;
   #requestId = 0;
   readonly #pending = new Map<number, PendingRequest>();
+  #resolvedDevice: ResolvedDevice | undefined;
+  #resolvedDtype: ResolvedDtype | undefined;
 
-  constructor(registry: ModelRegistry | StaticModelRegistry) {
+  constructor(
+    registry: ModelRegistry | StaticModelRegistry,
+    options: { device?: OnnxDevice; dtype?: OnnxDtype } = {},
+  ) {
     if (!isStaticRegistry(registry)) {
       throw new TranslatorError(
         ERROR_CODES.ENGINE_NOT_SUPPORTED,
@@ -64,6 +88,20 @@ export class TransformersEngine implements TranslationEngine {
       );
     }
     this.#registry = registry;
+    this.#device = options.device ?? "auto";
+    this.#dtype = options.dtype;
+  }
+
+  /**
+   * Returns the resolved device/dtype after the model has been loaded, or
+   * `{ device: "auto", dtype: "auto" }` before load (resolution is lazy
+   * because WebGPU probing is async).
+   */
+  capabilities(): { device: ResolvedDevice | "auto"; dtype: ResolvedDtype | "auto" } {
+    if (this.#resolvedDevice && this.#resolvedDtype) {
+      return { device: this.#resolvedDevice, dtype: this.#resolvedDtype };
+    }
+    return { device: "auto", dtype: "auto" };
   }
 
   /** Ob das Modell ohne Netzwerk verfügbar ist (Cache Storage). */
@@ -72,13 +110,53 @@ export class TransformersEngine implements TranslationEngine {
     if (typeof caches === "undefined") {
       return false;
     }
-    for (const file of descriptor.files) {
-      const match = await caches.match(file.url);
+    // When device/dtype is resolved, check the dtype-specific ONNX URLs
+    // (e.g. _fp16.onnx for WebGPU+fp16) instead of the registry's default
+    // (_bnb4.onnx). Non-ONNX files (tokenizer, config) are dtype-independent.
+    const urls = this.#cacheCheckUrls(descriptor);
+    for (const url of urls) {
+      const match = await caches.match(url);
       if (!match) {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * Returns the URLs to check in Cache Storage for `isCached()`.
+   *
+   * Non-ONNX files (tokenizer, config, generation_config) come from the
+   * descriptor and are dtype-independent. ONNX model files are computed from
+   * the resolved dtype when available, or fall back to the descriptor's file
+   * list (which uses the default bnb4 suffix).
+   */
+  #cacheCheckUrls(descriptor: ModelDescriptor): string[] {
+    const nonOnnx = descriptor.files
+      .filter((f) => !f.url.endsWith(".onnx"))
+      .map((f) => f.url);
+    if (this.#resolvedDtype) {
+      return [...nonOnnx, ...this.#expectedOnnxUrls(descriptor, this.#resolvedDtype)];
+    }
+    // Before load: use the descriptor's file list as-is (bnb4 default).
+    return descriptor.files.map((f) => f.url);
+  }
+
+  /**
+   * Computes the expected ONNX model file URLs for the given descriptor and
+   * resolved dtype. Transformers.js selects ONNX files by appending a dtype
+   * suffix to the base model name (e.g. `encoder_model_bnb4.onnx` for bnb4,
+   * `encoder_model_fp16.onnx` for fp16, `encoder_model.onnx` for fp32).
+   */
+  #expectedOnnxUrls(descriptor: ModelDescriptor, dtype: ResolvedDtype): string[] {
+    const modelId = descriptor.engineModelId;
+    if (!modelId) return [];
+    const suffix = DTYPE_SUFFIX[dtype];
+    const base = `https://huggingface.co/${modelId}/resolve/main/onnx`;
+    return [
+      `${base}/encoder_model${suffix}.onnx`,
+      `${base}/decoder_model_merged${suffix}.onnx`,
+    ];
   }
 
   /** Loads the model in the worker (lazy, idempotent per pair). */
@@ -217,19 +295,37 @@ export class TransformersEngine implements TranslationEngine {
         `Model ${descriptor.id} has no engineModelId`,
       );
     }
+    // Resolve device/dtype asynchronously (WebGPU probing is async).
+    const caps = await resolveDeviceDtype(this.#device, this.#dtype);
     let downloaded = false;
     try {
-      await this.#request(
-        { kind: "load", id: this.#nextId(), modelId },
-        (event) => {
-          downloaded = true;
-          if (event.kind === "progress") {
-            onProgress?.(event.event);
-          }
-        },
-      );
+      await this.#sendLoad(modelId, caps.device, caps.dtype, onProgress, (downloadedFlag) => {
+        downloaded = downloadedFlag;
+      });
       this.#loadedPair = languagePairKey(pair);
     } catch (error) {
+      // WebGPU→WASM fallback: if device was "auto" and WebGPU was selected but
+      // failed at runtime (adapter creation failed, fp16 not actually supported,
+      // etc.), retry once with WASM + bnb4. Explicit "webgpu" requests do NOT
+      // retry — the user asked for WebGPU specifically.
+      if (this.#device === "auto" && caps.device === "webgpu") {
+        const fallback = { device: "wasm" as const, dtype: "bnb4" as const };
+        try {
+          downloaded = false;
+          await this.#sendLoad(modelId, fallback.device, fallback.dtype, onProgress, (f) => {
+            downloaded = f;
+          });
+          this.#loadedPair = languagePairKey(pair);
+          return;
+        } catch (fallbackError) {
+          this.#loadPromise = undefined;
+          throw new TranslatorError(
+            downloaded ? ERROR_CODES.MODEL_LOAD_FAILED : ERROR_CODES.MODEL_DOWNLOAD_FAILED,
+            fallbackError instanceof Error ? fallbackError.message : "Failed to load model",
+            { cause: fallbackError },
+          );
+        }
+      }
       this.#loadPromise = undefined;
       if (isOfflineError(error) && !(await this.isCached(pair))) {
         throw new TranslatorError(
@@ -244,6 +340,40 @@ export class TransformersEngine implements TranslationEngine {
         { cause: error },
       );
     }
+  }
+
+  /**
+   * Sends a load request to the worker with the resolved device/dtype and
+   * captures the capabilities response. Calls `onDownloaded(true)` when
+   * progress events indicate a download has started.
+   */
+  async #sendLoad(
+    modelId: string,
+    device: ResolvedDevice,
+    dtype: ResolvedDtype,
+    onProgress: ProgressCallback | undefined,
+    onDownloaded: (downloaded: boolean) => void,
+  ): Promise<void> {
+    const response = await this.#request(
+      { kind: "load", id: this.#nextId(), modelId, device, dtype },
+      (event) => {
+        if (event.kind === "progress") {
+          onDownloaded(true);
+          onProgress?.(event.event);
+        } else if (event.kind === "capabilities") {
+          this.#resolvedDevice = event.device as ResolvedDevice;
+          this.#resolvedDtype = event.dtype as ResolvedDtype;
+        }
+      },
+    );
+    // The final response should be "loaded"; capabilities may have arrived
+    // as an earlier progress event. If capabilities weren't captured, set
+    // them from the known resolved values.
+    if (!this.#resolvedDevice || !this.#resolvedDtype) {
+      this.#resolvedDevice = device;
+      this.#resolvedDtype = dtype;
+    }
+    void response; // response.kind === "loaded"
   }
 
   #nextId(): number {
@@ -279,7 +409,7 @@ export class TransformersEngine implements TranslationEngine {
     if (!pending) {
       return;
     }
-    if (response.kind === "progress") {
+    if (response.kind === "progress" || response.kind === "capabilities") {
       pending.onEvent?.(response);
       return;
     }
@@ -296,6 +426,8 @@ export class TransformersEngine implements TranslationEngine {
       kind: "load" | "translate" | "dispose";
       id: number;
       modelId?: string;
+      device?: string;
+      dtype?: string;
       text?: string;
       texts?: string[];
     },

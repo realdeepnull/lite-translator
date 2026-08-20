@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { createTranslator, type ProgressEvent } from "@lite-translator/core";
-import { createOnnxEngine } from "../src/index.js";
+import { createOnnxEngine, detectWebGpu, type ResolvedCapabilities } from "../src/index.js";
 
 /**
  * Browser integration test: loads a (quantized) OPUS-MT model from the
  * HF Hub and performs a real translation. It fails under network/CI restrictions
  * Test fehl — er ist bewusst kein Unit-Test.
  */
+
+/** True when `navigator.gpu` is available (WebGPU capable environment). */
+const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
 describe("TransformersEngine (Browser)", () => {
   it("übersetzt 'Hallo Welt' von de nach en", async () => {
     const engine = createOnnxEngine();
@@ -93,6 +96,70 @@ describe("TransformersEngine (Browser)", () => {
     expect(results[0]!.text.trim()).toBe("");
     expect(results[2]!.text.trim()).toBe("");
     expect(results[1]!.text.trim().length).toBeGreaterThan(0);
+    await translator.dispose();
+  }, 600000);
+});
+
+// ---------------------------------------------------------------------------
+// WebGPU / device selection tests (Step 10)
+// ---------------------------------------------------------------------------
+
+describe("TransformersEngine device selection", () => {
+  it("capabilities() ist vor load 'auto'", () => {
+    const engine = createOnnxEngine();
+    const caps = engine.capabilities();
+    expect(caps.device).toBe("auto");
+    expect(caps.dtype).toBe("auto");
+  });
+
+  it("device: 'wasm' übersetzt 'Hallo Welt' und meldet wasm/bnb4", async () => {
+    const engine = createOnnxEngine({ device: "wasm" });
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const result = await translator.translate("Hallo Welt");
+    expect(result.engine).toBe("onnx");
+    const caps = engine.capabilities();
+    expect(caps.device).toBe("wasm");
+    expect(caps.dtype).toBe("bnb4");
+    await translator.dispose();
+  }, 600000);
+
+  it.runIf(!webgpuAvailable)(
+    "device: 'webgpu' wirft ENGINE_NOT_SUPPORTED ohne GPU",
+    async () => {
+      const engine = createOnnxEngine({ device: "webgpu" });
+      const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+      await expect(translator.preload()).rejects.toThrow(/WebGPU is not available/);
+    },
+  );
+
+  it.runIf(webgpuAvailable)(
+    "device: 'webgpu' lädt mit GPU und meldet webgpu/fp16 oder fp32",
+    async () => {
+      const engine = createOnnxEngine({ device: "webgpu" });
+      const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+      await translator.preload();
+      const caps = engine.capabilities();
+      expect(caps.device).toBe("webgpu");
+      expect(["fp16", "fp32"]).toContain(caps.dtype);
+      const result = await translator.translate("Hallo Welt");
+      expect(result.text.length).toBeGreaterThan(0);
+      await translator.dispose();
+    },
+    600000,
+  );
+
+  it("device: 'auto' wählt wasm in Umgebungen ohne GPU", async () => {
+    if (await detectWebGpu()) {
+      // Wenn WebGPU verfügbar ist, überspringen wir diesen Test (er testet
+      // den Fallback-Pfad, der nur ohne GPU relevant ist).
+      return;
+    }
+    const engine = createOnnxEngine({ device: "auto" });
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await translator.preload();
+    const caps: ResolvedCapabilities = engine.capabilities() as ResolvedCapabilities;
+    expect(caps.device).toBe("wasm");
+    expect(caps.dtype).toBe("bnb4");
     await translator.dispose();
   }, 600000);
 });

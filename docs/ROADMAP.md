@@ -177,29 +177,99 @@ Make quality, size and performance measurable.
 
 ---
 
-### Step 10 — Live Translation
+### Step 10 — WebGPU Acceleration
 
-**Status:** ⬜ Open
+**Status:** ✅ Done
 
-Translation while typing without unnecessary inference.
+Use the GPU for faster inference when the browser supports WebGPU, with automatic fallback to WASM.
+
+- capability detection: `navigator.gpu` + `requestAdapter()` probing before selecting the device
+- `device: "webgpu"` with `dtype: "fp16"` when WebGPU + `shader-f16` are available (or `dtype: "fp32"` fallback)
+- automatic fallback to `device: "wasm"` + `dtype: "bnb4"` when WebGPU is unavailable or adapter creation fails
+  - `bnb4` instead of `fp32` because `fp32` triggers `ShapeInferenceError` on WASM; `bnb4` is the only proven-working quantized dtype on v4's `onnxruntime-web` (`q8`/`int8`/`uint8`/`q4` all trigger `MatMulNBits` regression)
+- `q4f16` excluded from auto-selection (MatMulNBits bug); accepted as explicit override with a console warning
+- expose selected device/dtype via `capabilities()` on `TransformersEngine`
+- WebGPU→WASM fallback retry: when `device: "auto"` resolves to `"webgpu"` but the worker fails, the engine retries once with `wasm`/`bnb4`
+- browser tests use conditional skip (`it.runIf`) — no `--enable-unsafe-webgpu` flag or SwiftShader dependency
+- benchmark comparison: WebGPU vs. WASM inference latency (`BENCH_RESULT_WEBGPU` line, skipped in CI)
 
 ```ts
-const live = translator.createLiveSession({ debounce: 250 });
-
-live.on("translation", (result) => {
-  console.log(result.text);
+// Automatic device selection (default)
+const engine = createOnnxEngine({
+  device: "auto", // "webgpu" if available, else "wasm"
 });
 
-live.update("Hallo wie geht es dir?");
+// After load, inspect the resolved device/dtype
+await translator.preload();
+console.log(engine.capabilities()); // { device: "webgpu", dtype: "fp16" } or { device: "wasm", dtype: "bnb4" }
 ```
 
-- `createLiveSession()` is not yet implemented
-- batching of input, discarding outdated results, avoiding identical requests
-- optional simple segmentation; token streaming not required
+- `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — default `"auto"`
 
 ---
 
-### Step 11 — Release v0.1
+### Step 11 — i18n-Style Batch Translation
+
+**Status:** ⬜ Open
+
+Simpler batch usage so titles, descriptions and similar content can be translated quickly and easily — like an i18n library. Multiple components register their strings at a central store; a single `translateBatch()` call translates everything at once — one click, one inference, no race conditions.
+
+- `translateBatch()` overload that accepts a key-value map directly, no new API surface
+- preserves keys, only translates values; returns the same shape with translated strings
+- deduplication of identical values to avoid redundant inference
+- TypeScript overload returns `Record<string, string>` for object input, `TranslationResult[]` for array input
+- central store pattern: components register strings via `register(id, text)`, a single `translateAll()` triggers one `translateBatch()` for all registered strings
+- one inference call for all components — no overlapping `pipe()` calls, no race conditions
+- reactive updates: translated strings are exposed as a signal/store; component templates update automatically
+
+```ts
+// Existing: array input
+const results = await translator.translateBatch(["Hallo", "Welt"]);
+
+// New: object input — keys preserved, values translated
+const labels = await translator.translateBatch({
+  title: "Willkommen",
+  subtitle: "Bitte wählen Sie eine Sprache",
+  button: "Bestätigen",
+});
+// { title: "Welcome", subtitle: "Please select a language", button: "Confirm" }
+```
+
+#### Central store pattern (multi-component, single inference)
+
+Components register their strings at a shared store. A single button triggers `translateAll()`, which collects all registered strings and sends them in one `translateBatch()` call. Each component receives its translated strings reactively via signals.
+
+```ts
+// Component A (header)
+ngOnInit() {
+  store.register("header.title", "Willkommen");
+  store.register("header.subtitle", "Bitte wählen Sie eine Sprache");
+}
+// Template: {{ store.translations().get("header.title") }}
+
+// Component B (footer)
+ngOnInit() {
+  store.register("footer.button", "Bestätigen");
+  store.register("footer.link", "Abbrechen");
+}
+// Template: {{ store.translations().get("footer.button") }}
+
+// Toolbar — one click, all components translated
+async onTranslateAll() {
+  await store.translateAll();
+  // → 1 translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
+  // → 1 inference call, results distributed to all components
+}
+```
+
+| Approach | Race condition? | Inference calls | Complexity |
+| --- | --- | --- | --- |
+| Each component calls `translateBatch()` individually | ⚠️ yes — overlapping `pipe()` | N (one per component) | high — queue required |
+| **Central store, one `translateBatch()`** | ✅ no — single call | **1** (for all components) | low |
+
+---
+
+### Step 12 — Release v0.1
 
 **Status:** 🟡 Partial
 
@@ -210,16 +280,17 @@ Done:
 - TypeScript API, engine abstraction, `de ↔ en`, local inference
 - lazy loading, model cache, offline, web worker
 - `translate()`, `preload()`, `dispose()`, progress events, error codes
+- `translateBatch()` (Step 9)
+- WebGPU Acceleration (Step 10)
 - basic tests and browser demo
 
 Missing:
 
-- `translateBatch()` (Step 9)
-- live translation (Step 10)
+- i18n-style batch translation (Step 11)
 
 ---
 
-### Step 12 — Developer Experience (v0.2)
+### Step 13 — Developer Experience (v0.2)
 
 **Status:** 🟡 Partial
 
@@ -241,7 +312,7 @@ Missing:
 
 ---
 
-### Step 13 — More Languages (v0.3)
+### Step 14 — More Languages (v0.3)
 
 **Status:** ⬜ Open
 
@@ -253,7 +324,7 @@ Additional language pairs after German/English are stable.
 
 ---
 
-### Step 14 — Engine Ecosystem (v0.4)
+### Step 15 — Engine Ecosystem (v0.4)
 
 **Status:** 🟡 Partial
 
@@ -275,7 +346,7 @@ Missing:
 
 ---
 
-### Step 15 — Evaluate Smart Path (v0.5)
+### Step 16 — Evaluate Smart Path (v0.5)
 
 **Status:** ⬜ Open
 
@@ -288,31 +359,29 @@ An optional Smart Path as a separate local engine.
 
 ---
 
-### Step 16 — WebGPU Acceleration (v0.6)
+### Step 17 — Live Translation (v0.6)
 
 **Status:** ⬜ Open
 
-Use the GPU for faster inference when the browser supports WebGPU, with automatic fallback to WASM.
-
-- capability detection: check `navigator.gpu` availability before selecting the device
-- `device: "webgpu"` with `dtype: "fp16"` or `dtype: "q4f16"` when WebGPU is available
-- automatic fallback to `device: "wasm"` + `dtype: "fp32"` when WebGPU is unavailable or adapter creation fails
-- expose selected device/dtype via `capabilities()` or progress metadata
-- validate WebGPU support in the browser test environment (Playwright `--enable-unsafe-webgpu` flag or manual testing in a real browser)
-- benchmark comparison: WebGPU vs. WASM inference latency
+Translation while typing without unnecessary inference.
 
 ```ts
-// Planned: automatic device selection
-const engine = createOnnxEngine({
-  device: "auto", // "webgpu" if available, else "wasm"
+const live = translator.createLiveSession({ debounce: 250 });
+
+live.on("translation", (result) => {
+  console.log(result.text);
 });
+
+live.update("Hallo wie geht es dir?");
 ```
 
-- `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — default `"auto"`
+- `createLiveSession()` is not yet implemented
+- batching of input, discarding outdated results, avoiding identical requests
+- optional simple segmentation; token streaming not required
 
 ---
 
-### Step 17 — Release 1.0
+### Step 18 — Release 1.0
 
 **Status:** ⬜ Open
 

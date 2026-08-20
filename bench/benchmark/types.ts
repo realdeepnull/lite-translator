@@ -11,6 +11,10 @@ export interface BenchMetrics {
   userAgent: string;
   /** Language pair benchmarked. */
   pair: string;
+  /** Device used: "webgpu" | "wasm". */
+  device: string;
+  /** Dtype used: "fp16" | "fp32" | "bnb4" | "q4f16". */
+  dtype: string;
   /** Cold-start: createTranslator + preload (model download + init), in ms. */
   coldStartMs: number;
   /** Time for the very first translate() call after preload, in ms. */

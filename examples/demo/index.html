@@ -431,8 +431,17 @@
 
       // ----- Translator-Verwaltung (ein Translator pro Sprachpaar) -----
       let translator = null;
+      let engine = null;
       let currentPair = null;
       let isLoading = false;
+
+      /** Liest die vom Engine aufgelöste device/dtype-Konfiguration. */
+      function capabilitiesLabel() {
+        if (!engine) return "";
+        const caps = engine.capabilities();
+        if (caps.device === "auto") return "";
+        return ` · ${caps.device}/${caps.dtype}`;
+      }
 
       function setStatus(state, text) {
         statusEl.classList.remove("is-ready", "is-busy", "is-error");
@@ -451,10 +460,11 @@
         const pairKey = `${from}-${to}`;
         if (translator && currentPair === pairKey) return translator;
         if (translator) await translator.dispose();
+        engine = createOnnxEngine();
         translator = await createTranslator({
           from,
           to,
-          engines: [createOnnxEngine()],
+          engines: [engine],
           onProgress: (e) => {
             if (Number.isFinite(e.progress)) setProgress(e.progress, `Lade Modell … ${Math.round(e.progress * 100)}%`);
           },
@@ -475,8 +485,8 @@
           setProgress(0, "Lade Modell …");
           try {
             await t.preload();
-            setStatus("ready", "Modell bereit");
-            setProgress(1, "Modell bereit.");
+            setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
+            setProgress(1, `Modell bereit${capabilitiesLabel()}.`);
           } catch (err) {
             setStatus("error", "Fehler beim Laden");
             setProgress(0, "Fehler.");
@@ -485,7 +495,7 @@
             isLoading = false;
           }
         } else {
-          setStatus("ready", "Modell bereit");
+          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
         }
         return t;
       }
@@ -514,7 +524,7 @@
           const t = await ensureReady();
           const result = await t.translate(src.value);
           out.textContent = result.text;
-          setStatus("ready", "Modell bereit");
+          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
         } catch (err) {
           out.textContent = formatError(err);
           setStatus("error", "Fehler bei der Übersetzung");
@@ -617,7 +627,7 @@
             await translateOne(target[0], t);
             setProgress(1, "Erster Text übersetzt.");
           }
-          setStatus("ready", "Modell bereit");
+          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
         } catch (err) {
           setStatus("error", "Fehler beim Laden des Modells");
           for (const item of target) {

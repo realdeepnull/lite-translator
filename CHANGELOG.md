@@ -7,12 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **WebGPU acceleration:** `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — 
+  default `"auto"`. Probes `navigator.gpu`; selects `webgpu`/`fp16` (or `webgpu`/`fp32`
+  without `shader-f16`), falling back to `wasm`/`bnb4`. `capabilities()` on
+  `TransformersEngine` exposes the resolved `{ device, dtype }`. WebGPU→WASM
+  fallback retry for `device: "auto"`; explicit `"webgpu"` throws if unavailable.
+- `detectWebGpu()`, `isFp16Supported()`, `resolveDeviceDtype()` exported.
+- Worker protocol: `load` accepts `device`/`dtype`, posts `capabilities` before `loaded`.
+- `isCached()` is dtype-aware (`_fp16`/`_bnb4`/unsuffixed ONNX URLs).
+- Browser tests with conditional skip (`it.runIf`); benchmark WebGPU vs. WASM
+  comparison (`BENCH_RESULT_WEBGPU`); demo shows `capabilities()` in status badge.
+
 ### Changed
 
 - `@lite-translator/engine-onnx`: upgraded `@huggingface/transformers` to
-  `^4.2.0`. Models switched to `onnx-community/opus-mt-*`. Default config is
-  `wasm` + `bnb4` to work around v4's `onnxruntime-web` MatMulNBits regression.
-  Tarball 954 kB → 625 kB. WebGPU acceleration added to ROADMAP (Step 16).
+  `^4.2.0`, models switched to `onnx-community/opus-mt-*`, default `wasm`+`bnb4`
+  (MatMulNBits workaround).
 
 ## [0.1.0] — 2026-08-19
 

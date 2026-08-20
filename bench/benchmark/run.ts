@@ -25,6 +25,8 @@ interface BenchMetrics {
   timestamp: string;
   userAgent: string;
   pair: string;
+  device: string;
+  dtype: string;
   coldStartMs: number;
   firstTranslateMs: number;
   warmRunsMs: number[];
@@ -52,6 +54,7 @@ interface BundleResult {
 
 interface FullReport {
   benchmark: BenchMetrics;
+  benchmarkWebGpu: BenchMetrics | null;
   bundle: BundleResult;
 }
 
@@ -63,12 +66,21 @@ const benchStdout = execFileSync(
   [],
   { encoding: "utf-8", cwd: root, stdio: ["ignore", "pipe", "inherit"], shell: true },
 );
-const benchLine = extractLine(benchStdout, "BENCH_RESULT");
+const benchLine = extractLine(benchStdout, "BENCH_RESULT ");
 if (!benchLine) {
   console.error("[run] no BENCH_RESULT line found in vitest output");
   process.exit(1);
 }
 const bench = JSON.parse(benchLine) as BenchMetrics;
+
+// WebGPU benchmark line is optional (only emitted when WebGPU is available).
+const webgpuLine = extractLine(benchStdout, "BENCH_RESULT_WEBGPU ");
+const benchWebGpu = webgpuLine ? (JSON.parse(webgpuLine) as BenchMetrics) : null;
+if (benchWebGpu) {
+  console.log("[run] WebGPU benchmark captured");
+} else {
+  console.log("[run] no WebGPU benchmark (unavailable or skipped)");
+}
 
 // ---- 2. run bundle-size script ------------------------------------------
 console.log("[run] measuring bundle sizes …");
@@ -91,12 +103,12 @@ const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const jsonPath = resolve(reportDir, `benchmark-${stamp}.json`);
 const summaryPath = resolve(reportDir, "summary.md");
 
-const report: FullReport = { benchmark: bench, bundle };
+const report: FullReport = { benchmark: bench, benchmarkWebGpu: benchWebGpu, bundle };
 writeFileSync(jsonPath, JSON.stringify(report, null, 2) + "\n");
 
 // Markdown table (append so historical runs accumulate).
 const mdRow =
-  `| ${bench.timestamp} | ${fmtMs(bench.coldStartMs)} | ${fmtMs(bench.firstTranslateMs)} ` +
+  `| ${bench.timestamp} | ${bench.device}/${bench.dtype} | ${fmtMs(bench.coldStartMs)} | ${fmtMs(bench.firstTranslateMs)} ` +
   `| ${fmtMs(bench.warmMedianMs)} | ${fmtMs(bench.warmP95Ms)} | ${fmtMs(bench.batchTranslateMs)} ` +
   `| ${bench.batchInputsCount} | ${fmtBytes(bundle.totalGzipBytes)} | ${fmtBytes(bench.modelSizeBytes)} |\n`;
 
@@ -104,11 +116,18 @@ if (!existsSync(summaryPath)) {
   writeFileSync(
     summaryPath,
     "# Benchmark Summary\n\n" +
-      "| timestamp | cold start | first | warm median | warm p95 | batch | batch n | bundle gzip | model size |\n" +
-      "|---|---|---|---|---|---|---|---|---|\n",
+      "| timestamp | device/dtype | cold start | first | warm median | warm p95 | batch | batch n | bundle gzip | model size |\n" +
+      "|---|---|---|---|---|---|---|---|---|---|\n",
   );
 }
 appendFileSync(summaryPath, mdRow);
+
+if (benchWebGpu) {
+  const webgpuRow =
+    `| ${benchWebGpu.timestamp} | ${benchWebGpu.device}/${benchWebGpu.dtype} | ${fmtMs(benchWebGpu.coldStartMs)} | ${fmtMs(benchWebGpu.firstTranslateMs)} ` +
+    `| ${fmtMs(benchWebGpu.warmMedianMs)} | ${fmtMs(benchWebGpu.warmP95Ms)} | — | 0 | — | — |\n`;
+  appendFileSync(summaryPath, webgpuRow);
+}
 
 console.log(`[run] report written: ${jsonPath}`);
 console.log(`[run] summary updated: ${summaryPath}`);

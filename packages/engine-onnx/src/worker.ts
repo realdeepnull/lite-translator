@@ -30,6 +30,8 @@ interface PipelineInstance {
 }
 
 let activeModelId: string | undefined;
+let activeDevice: string | undefined;
+let activeDtype: string | undefined;
 let pipe: PipelineInstance | undefined;
 let loadPromise: Promise<void> | undefined;
 
@@ -37,6 +39,10 @@ interface LoadMessage {
   kind: "load";
   id: number;
   modelId: string;
+  /** Resolved device ("webgpu" | "wasm"). Omitted for backward compat. */
+  device?: string;
+  /** Resolved dtype (e.g. "fp16", "bnb4"). Omitted for backward compat. */
+  dtype?: string;
 }
 interface TranslateMessage {
   kind: "translate";
@@ -75,7 +81,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
   try {
     switch (msg.kind) {
       case "load":
-        await handleLoad(msg.id, msg.modelId);
+        await handleLoad(msg.id, msg.modelId, msg.device, msg.dtype);
         break;
       case "translate":
         await handleTranslate(msg.id, "texts" in msg ? msg.texts : msg.text);
@@ -89,9 +95,15 @@ self.onmessage = async (event: MessageEvent<Request>) => {
   }
 };
 
-async function handleLoad(id: number, modelId: string): Promise<void> {
+async function handleLoad(
+  id: number,
+  modelId: string,
+  device?: string,
+  dtype?: string,
+): Promise<void> {
   if (pipe) {
     if (activeModelId === modelId) {
+      post({ kind: "capabilities", id, device: activeDevice ?? "wasm", dtype: activeDtype ?? "bnb4" });
       post({ kind: "loaded", id });
       return;
     }
@@ -112,21 +124,25 @@ async function handleLoad(id: number, modelId: string): Promise<void> {
           post({ kind: "progress", id, event });
         }
       };
-      // v4 defaults to WebGPU, which is unavailable in many environments
-      // (headless browsers, older browsers, no GPU). Use WASM + bnb4 as the
-      // safe default until WebGPU capability detection is implemented.
-      // (q8/int8/uint8 all trigger MatMulNBits regression in v4's onnxruntime-web;
-      //  bnb4 uses a different quantization graph that avoids the bug.)
+      // Resolve device/dtype: use provided values, or default to WASM + bnb4
+      // (the safe default — v4 defaults to WebGPU which is unavailable in many
+      //  environments; bnb4 avoids the MatMulNBits regression that affects
+      //  q8/int8/uint8/q4 on v4's onnxruntime-web).
+      const resolvedDevice = device ?? "wasm";
+      const resolvedDtype = dtype ?? "bnb4";
       const created = (await pipeline("translation", modelId, {
-        device: "wasm",
-        dtype: "bnb4",
+        device: resolvedDevice as "webgpu" | "wasm",
+        dtype: resolvedDtype as "fp16" | "fp32" | "bnb4" | "q4f16",
         progress_callback: progressCallback,
       })) as unknown as PipelineInstance;
       pipe = created;
       activeModelId = modelId;
+      activeDevice = resolvedDevice;
+      activeDtype = resolvedDtype;
     })();
   }
   await loadPromise;
+  post({ kind: "capabilities", id, device: activeDevice ?? "wasm", dtype: activeDtype ?? "bnb4" });
   post({ kind: "loaded", id });
 }
 
@@ -153,12 +169,15 @@ async function handleDispose(id: number): Promise<void> {
   }
   pipe = undefined;
   activeModelId = undefined;
+  activeDevice = undefined;
+  activeDtype = undefined;
   loadPromise = undefined;
   post({ kind: "disposed", id });
 }
 
 type Response =
   | { kind: "progress"; id: number; event: ProgressEvent }
+  | { kind: "capabilities"; id: number; device: string; dtype: string }
   | { kind: "loaded"; id: number }
   | { kind: "result"; id: number; text: string }
   | { kind: "result"; id: number; texts: string[] }
