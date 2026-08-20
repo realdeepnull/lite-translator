@@ -8,8 +8,11 @@ import { createOnnxEngine, detectWebGpu, type ResolvedCapabilities } from "../sr
  * Test fehl — er ist bewusst kein Unit-Test.
  */
 
-/** True when `navigator.gpu` is available (WebGPU capable environment). */
-const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
+/** True when a real WebGPU adapter is available (async probe, not just the API). */
+const webgpuAvailable =
+  typeof navigator !== "undefined" && "gpu" in navigator
+    ? await detectWebGpu().catch(() => false)
+    : false;
 describe("TransformersEngine (Browser)", () => {
   it("übersetzt 'Hallo Welt' von de nach en", async () => {
     const engine = createOnnxEngine();
@@ -133,14 +136,14 @@ describe("TransformersEngine device selection", () => {
   );
 
   it.runIf(webgpuAvailable)(
-    "device: 'webgpu' lädt mit GPU und meldet webgpu/fp16 oder fp32",
+    "device: 'webgpu' lädt mit GPU und meldet webgpu/bnb4",
     async () => {
       const engine = createOnnxEngine({ device: "webgpu" });
       const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
       await translator.preload();
       const caps = engine.capabilities();
       expect(caps.device).toBe("webgpu");
-      expect(["fp16", "fp32"]).toContain(caps.dtype);
+      expect(caps.dtype).toBe("bnb4");
       const result = await translator.translate("Hallo Welt");
       expect(result.text.length).toBeGreaterThan(0);
       await translator.dispose();

@@ -149,6 +149,97 @@ passed through unchanged. Batches larger than 32 texts are chunked automatically
 > faster than N individual `translate()` calls because the fixed inference cost
 > (session setup, KV-cache init, kernel dispatch) is paid once per batch.
 
+## i18n-style translation: `t()` + `translateAll()`
+
+For UI strings spread across the page, the `t()` / `translateAll()` pattern is
+simpler than managing `translateBatch()` arrays yourself. Each "component" (a
+DOM block in vanilla JS) registers its strings with a single `t(key, text)`
+call; one `translateAll()` triggers a **single** `translateBatch()` for all
+registered strings — one inference call, no race conditions.
+
+The store lives inside core (`TranslationStore`). Vanilla JS binds to it via
+`store.subscribe()` and updates the DOM when notified.
+
+```html
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>lite-translator — i18n demo</title>
+  </head>
+  <body>
+    <!-- Component A: header -->
+    <section id="header">
+      <h1 data-key="header.title">Willkommen</h1>
+      <p data-key="header.subtitle">Bitte wählen Sie eine Sprache</p>
+    </section>
+
+    <!-- Component B: footer -->
+    <section id="footer">
+      <button data-key="footer.button">Bestätigen</button>
+      <a href="#" data-key="footer.link">Abbrechen</a>
+    </section>
+
+    <button id="translateAllBtn">Alle übersetzen</button>
+    <output id="status"></output>
+
+    <script type="module">
+      import { createTranslator } from "@lite-translator/core";
+      import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+      const status = document.getElementById("status");
+      const translateAllBtn = document.getElementById("translateAllBtn");
+
+      const translator = await createTranslator({
+        from: "de",
+        to: "en",
+        engines: [createOnnxEngine()],
+      });
+
+      const t = translator.t();
+
+      // Register all strings from [data-key] elements and keep a reference.
+      const elements = [...document.querySelectorAll("[data-key]")];
+      for (const el of elements) {
+        t(el.dataset.key, el.textContent);
+      }
+
+      // Subscribe to the store and update the DOM after translateAll().
+      const store = translator.store();
+      store.subscribe(() => {
+        for (const el of elements) {
+          el.textContent = t(el.dataset.key); // translated value or key fallback
+        }
+      });
+
+      // One click, one inference call for all registered strings.
+      translateAllBtn.addEventListener("click", async () => {
+        translateAllBtn.disabled = true;
+        status.value = "Übersetze…";
+        try {
+          await translator.translateAll();
+          // → 1× translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
+          // → store.subscribe fires → DOM updates automatically
+          status.value = "Fertig — 1 Batch-Aufruf für alle Komponenten";
+        } catch (err) {
+          status.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+        } finally {
+          translateAllBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
+```
+
+> **Synchronous first render:** `t(key, text)` returns the original text
+> immediately, so the page shows German on load. After `translateAll()`, the
+> store notifies the subscriber and the DOM updates to English — no manual
+> per-element wiring.
+>
+> **Deduplication:** If multiple elements register the same value (e.g.
+> "Abbrechen" appears twice), core sends it to the engine only once.
+
 ## Notes
 
 - **Offline:** After the first model download, translation works without a network connection (Cache Storage).

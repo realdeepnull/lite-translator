@@ -1,6 +1,7 @@
 import { ERROR_CODES, TranslatorError } from "./errors.js";
 import type { TranslationEngine } from "./engine.js";
 import { getDefaultEngines } from "./engine.js";
+import { TranslationStore } from "./store.js";
 import type {
   LanguagePair,
   ProgressCallback,
@@ -20,6 +21,8 @@ export class Translator {
   #ready = false;
   #disposed = false;
   #loadPromise: Promise<void> | undefined;
+  /** Lazily created i18n-style store, instantiated on first t() call. */
+  #store: TranslationStore | undefined;
 
   constructor(
     options: TranslatorOptions,
@@ -86,6 +89,83 @@ export class Translator {
     }
   }
 
+  /**
+   * Returns a bound `t(key, text?)` function for i18n-style batch translation.
+   *
+   * - `t("my.key", "Hallo")` registers the key and returns the original text
+   *   synchronously.
+   * - `t("my.key")` returns the current value (translation after
+   *   `translateAll()`, original before, or the key itself if never
+   *   registered — i18n fallback convention).
+   *
+   * The store is shared across all `t()` calls from the same translator.
+   */
+  t(): (key: string, text?: string) => string {
+    if (!this.#store) {
+      this.#store = new TranslationStore();
+    }
+    const store = this.#store;
+    return (key: string, text?: string): string => {
+      this.#assertNotDisposed();
+      if (text !== undefined) {
+        return store.register(key, text);
+      }
+      return store.get(key) ?? key;
+    };
+  }
+
+  /**
+   * The reactive store backing `t()`. Created lazily on first `t()` call.
+   * Frameworks (Angular, React, Vue) subscribe to it for reactive template
+   * updates. Returns `undefined` if `t()` was never called.
+   */
+  store(): TranslationStore | undefined {
+    return this.#store;
+  }
+
+  /**
+   * Translates all strings registered via `t()` in a single `translateBatch()`
+   * call. After resolving, the store is updated with the translated values and
+   * all subscribers are notified. Loads the model when needed.
+   *
+   * If no strings are registered, this is a no-op.
+   *
+   * Identical values are deduplicated before inference to avoid redundant
+   * work.
+   */
+  async translateAll(options?: TranslateOptions): Promise<void> {
+    this.#assertNotDisposed();
+    if (!this.#store || this.#store.size === 0) {
+      return;
+    }
+    if (!this.#ready) {
+      await this.preload();
+    }
+    const all = [...this.#store.entries()];
+    // Deduplicate values: identical source strings share one inference.
+    const unique = [...new Set(all.map(([, value]) => value))];
+    try {
+      const results = await this.#engine.translateBatch(unique, this.#pair, options);
+      const valueToTranslation = new Map<string, string>();
+      for (let i = 0; i < unique.length; i++) {
+        valueToTranslation.set(unique[i]!, results[i]?.text ?? unique[i]!);
+      }
+      for (const [key, value] of all) {
+        const translated = valueToTranslation.get(value);
+        if (translated !== undefined) {
+          this.#store.set(key, translated);
+        }
+      }
+    } catch (error) {
+      if (error instanceof TranslatorError) {
+        throw error;
+      }
+      throw new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "translateAll failed", {
+        cause: error,
+      });
+    }
+  }
+
   /** true, wenn das Modell geladen und sofort einsatzbereit ist. */
   isReady(): boolean {
     return this.#ready;
@@ -103,6 +183,7 @@ export class Translator {
       return;
     }
     this.#disposed = true;
+    this.#store?.clear();
     await this.#engine.dispose();
   }
 

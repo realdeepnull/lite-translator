@@ -281,6 +281,48 @@
       .batch-item .status.is-error { color: var(--error); }
       .batch-item .status.is-busy { color: var(--warning); }
 
+      .i18n-components {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+      }
+      .i18n-component {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.85rem 1rem;
+      }
+      .i18n-component > h3 {
+        margin: 0 0 0.6rem;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        font-weight: 600;
+      }
+      .i18n-row {
+        display: flex;
+        flex-direction: column;
+        padding: 0.45rem 0;
+        border-top: 1px dashed var(--border);
+      }
+      .i18n-row:first-of-type { border-top: none; padding-top: 0; }
+      .i18n-key {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        font-family: ui-monospace, "SF Mono", monospace;
+      }
+      .i18n-text {
+        font-size: 0.95rem;
+        margin-top: 0.1rem;
+      }
+      .i18n-stats {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-left: auto;
+        font-variant-numeric: tabular-nums;
+      }
+
       details {
         margin-top: 1.5rem;
         font-size: 0.85rem;
@@ -364,6 +406,37 @@
         <div class="actions" style="margin-top:1rem">
           <button id="run-batch" class="primary" type="button">Batch starten</button>
           <button id="clear-batch" type="button">Ergebnisse leeren</button>
+        </div>
+      </section>
+
+      <!-- i18n-Style: t() / translateAll() -->
+      <section class="card">
+        <h2>i18n-Style (t / translateAll)</h2>
+        <p class="help">UI-Strings über mehrere „Komponenten" verteilt mit <code>t(key, text)</code> registrieren; ein Klick auf „Alle übersetzen" führt genau einen <code>translateBatch</code>-Aufruf für alle registrierten Strings aus. Identische Werte werden vor der Inferenz dedupliziert (z.B. „Abbrechen"). Reaktiv via <code>store.subscribe()</code>.</p>
+
+        <div class="i18n-components">
+          <div class="i18n-component">
+            <h3>Header</h3>
+            <div class="i18n-row"><span class="i18n-key">header.title</span><span class="i18n-text" data-i18n-key="header.title">Willkommen</span></div>
+            <div class="i18n-row"><span class="i18n-key">header.subtitle</span><span class="i18n-text" data-i18n-key="header.subtitle">Bitte wählen Sie eine Sprache</span></div>
+          </div>
+          <div class="i18n-component">
+            <h3>Footer</h3>
+            <div class="i18n-row"><span class="i18n-key">footer.button</span><span class="i18n-text" data-i18n-key="footer.button">Bestätigen</span></div>
+            <div class="i18n-row"><span class="i18n-key">footer.link</span><span class="i18n-text" data-i18n-key="footer.link">Abbrechen</span></div>
+          </div>
+          <div class="i18n-component">
+            <h3>Formular</h3>
+            <div class="i18n-row"><span class="i18n-key">form.name</span><span class="i18n-text" data-i18n-key="form.name">Name</span></div>
+            <div class="i18n-row"><span class="i18n-key">form.email</span><span class="i18n-text" data-i18n-key="form.email">E-Mail-Adresse</span></div>
+            <div class="i18n-row"><span class="i18n-key">form.cancel</span><span class="i18n-text" data-i18n-key="form.cancel">Abbrechen</span></div>
+          </div>
+        </div>
+
+        <div class="actions" style="margin-top:1rem">
+          <button id="run-i18n" class="primary" type="button">Alle übersetzen</button>
+          <button id="reset-i18n" type="button">Zurücksetzen</button>
+          <span id="i18n-stats" class="i18n-stats"></span>
         </div>
       </section>
 
@@ -460,7 +533,9 @@
         const pairKey = `${from}-${to}`;
         if (translator && currentPair === pairKey) return translator;
         if (translator) await translator.dispose();
-        engine = createOnnxEngine();
+        // dtype: "bnb4" — fp16 on WebGPU produces empty/garbage output for short
+        // strings (UI labels). bnb4 works reliably on both WebGPU and WASM.
+        engine = createOnnxEngine({ device: "auto", dtype: "bnb4" });
         translator = await createTranslator({
           from,
           to,
@@ -651,9 +726,82 @@
         setProgress(0, "Ergebnisse geleert.");
       });
 
+      // ----- i18n-Style Section (t / translateAll) -----
+      const runI18nBtn = document.getElementById("run-i18n");
+      const resetI18nBtn = document.getElementById("reset-i18n");
+      const i18nStats = document.getElementById("i18n-stats");
+      const i18nElements = [...document.querySelectorAll("[data-i18n-key]")];
+      let i18nT = null;
+      let i18nStore = null;
+      let i18nUnsubscribe = null;
+
+      // Originale beim Laden sichern (für Zurücksetzen).
+      for (const el of i18nElements) el.dataset.i18nOriginal = el.textContent;
+
+      function uniqueI18nCount() {
+        return new Set(i18nElements.map((el) => el.dataset.i18nOriginal)).size;
+      }
+
+      function updateI18nDom() {
+        if (!i18nT) return;
+        const t = i18nT.t();
+        for (const el of i18nElements) el.textContent = t(el.dataset.i18nKey);
+      }
+
+      function resetI18nDom() {
+        for (const el of i18nElements) el.textContent = el.dataset.i18nOriginal;
+        i18nStats.textContent = "";
+      }
+
+      // Translator-Wechsel/Sprachwechsel: Store neu an den aktuellen Translator binden.
+      async function ensureI18nReady() {
+        const translator = await ensureReady();
+        if (i18nT !== translator) {
+          i18nUnsubscribe?.();
+          i18nT = translator;
+          const t = translator.t();
+          for (const el of i18nElements) t(el.dataset.i18nKey, el.dataset.i18nOriginal);
+          i18nStore = translator.store();
+          i18nUnsubscribe = i18nStore.subscribe(updateI18nDom);
+        }
+        return translator;
+      }
+
+      runI18nBtn.addEventListener("click", async () => {
+        runI18nBtn.disabled = true;
+        i18nStats.textContent = "Übersetze …";
+        setStatus("busy", "i18n: Übersetze …");
+        try {
+          const translator = await ensureI18nReady();
+          const total = i18nElements.length;
+          const unique = uniqueI18nCount();
+          await translator.translateAll();
+          // store.subscribe feuert → updateI18nDom aktualisiert alle Komponenten.
+          i18nStats.textContent = `${total} Strings → ${unique} eindeutig → 1 Batch-Aufruf`;
+          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
+        } catch (err) {
+          i18nStats.textContent = formatError(err);
+          setStatus("error", "Fehler bei der Übersetzung");
+        } finally {
+          runI18nBtn.disabled = false;
+        }
+      });
+
+      resetI18nBtn.addEventListener("click", () => {
+        if (!i18nStore) { resetI18nDom(); return; }
+        // Store auf Originale zurücksetzen, damit erneut übersetzt werden kann.
+        i18nUnsubscribe?.();
+        i18nStore.clear();
+        const t = i18nT.t();
+        for (const el of i18nElements) t(el.dataset.i18nKey, el.dataset.i18nOriginal);
+        i18nUnsubscribe = i18nStore.subscribe(updateI18nDom);
+        updateI18nDom();
+        i18nStats.textContent = "";
+      });
+
       // ----- Sprachwechsel & Vorladen -----
-      fromSel.addEventListener("change", () => { translator = null; currentPair = null; setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
-      toSel.addEventListener("change", () => { translator = null; currentPair = null; setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      fromSel.addEventListener("change", () => { translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      toSel.addEventListener("change", () => { translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
 
       preloadBtn.addEventListener("click", async () => {
         preloadBtn.disabled = true;

@@ -115,6 +115,133 @@ function BatchTranslator() {
 > faster than N individual `translate()` calls because the fixed inference cost
 > (session setup, KV-cache init, kernel dispatch) is paid once per batch.
 
+## i18n-style translation: `t()` + `translateAll()`
+
+For UI strings spread across many components, the `t()` / `translateAll()`
+pattern is simpler than managing `translateBatch()` arrays yourself. Each
+component registers its strings with a single `t(key, text)` call; one
+`translateAll()` triggers a **single** `translateBatch()` for all registered
+strings — one inference call, no race conditions, no per-component arrays.
+
+The store lives inside core (`TranslationStore`). React binds to it via
+`useSyncExternalStore`, which is the idiomatic way to consume an external
+mutable store in React 18.
+
+### Step 1: Hook — `useTranslation()`
+
+```tsx
+// src/useTranslation.ts
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { type Translator } from "@lite-translator/core";
+
+/**
+ * Returns `{ t, translateAll }` for a translator. `t(key, text)` registers and
+ * reads a string; `translateAll()` translates everything in one batch.
+ */
+export function useTranslation(translator: Translator | null) {
+  const tRef = useRef<((key: string, text?: string) => string) | null>(null);
+  const store = translator?.store();
+
+  // Lazily create the bound t() once per translator.
+  if (translator && !tRef.current) {
+    tRef.current = translator.t();
+  }
+
+  // Subscribe to store changes for re-render after translateAll().
+  const snapshot = useSyncExternalStore(
+    (cb) => store?.subscribe(cb) ?? (() => {}),
+    () => store?.snapshot() ?? {},
+    () => store?.snapshot() ?? {}, // SSR snapshot
+  );
+
+  useEffect(() => {
+    return () => {
+      tRef.current = null;
+    };
+  }, [translator]);
+
+  const t = tRef.current ?? ((key: string) => key);
+  const translateAll = () => translator?.translateAll();
+  return { t, translateAll, snapshot };
+}
+```
+
+### Step 2: Components — register strings, read reactively
+
+```tsx
+// src/Header.tsx
+import { type Translator } from "@lite-translator/core";
+import { useTranslation } from "./useTranslation";
+
+export function Header({ translator }: { translator: Translator | null }) {
+  const { t, snapshot } = useTranslation(translator);
+  // Register on first render; t() returns the original synchronously.
+  t("header.title", "Willkommen");
+  t("header.subtitle", "Bitte wählen Sie eine Sprache");
+
+  return (
+    <header>
+      <h1>{snapshot["header.title"] ?? "Willkommen"}</h1>
+      <p>{snapshot["header.subtitle"] ?? "Bitte wählen Sie eine Sprache"}</p>
+    </header>
+  );
+}
+
+// src/Footer.tsx
+export function Footer({ translator }: { translator: Translator | null }) {
+  const { t, snapshot } = useTranslation(translator);
+  t("footer.button", "Bestätigen");
+  t("footer.link", "Abbrechen");
+
+  return (
+    <footer>
+      <button>{snapshot["footer.button"] ?? "Bestätigen"}</button>
+      <a href="#">{snapshot["footer.link"] ?? "Abbrechen"}</a>
+    </footer>
+  );
+}
+```
+
+### Step 3: Toolbar — one click, all components translated
+
+```tsx
+// src/Toolbar.tsx
+import { useState } from "react";
+import { type Translator } from "@lite-translator/core";
+import { useTranslation } from "./useTranslation";
+
+export function Toolbar({ translator }: { translator: Translator | null }) {
+  const { translateAll } = useTranslation(translator);
+  const [loading, setLoading] = useState(false);
+
+  const handleClick = async () => {
+    if (!translator) return;
+    setLoading(true);
+    try {
+      await translateAll();
+      // → 1× translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
+      // → useSyncExternalStore triggers re-render in Header and Footer
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button onClick={handleClick} disabled={loading}>
+      {loading ? "Translating…" : "Translate all"}
+    </button>
+  );
+}
+```
+
+> **Synchronous first render:** `t(key, text)` returns the original text
+> immediately, so the first paint shows German. After `translateAll()`, the
+> store notifies `useSyncExternalStore` and all components re-render in
+> English — no manual state per component.
+>
+> **Deduplication:** If multiple components register the same value (e.g.
+> "Abbrechen" appears twice), core sends it to the engine only once.
+
 ## Notes
 
 - **Lazy loading:** `createTranslator()` does not load a model yet. Only `translate()` or `preload()` loads the model from the Hugging Face Hub. On the first call, the progress bar appears.

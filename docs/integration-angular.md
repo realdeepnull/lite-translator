@@ -297,6 +297,150 @@ export class TranslatorBatchComponent {
 > faster than N individual `translate()` calls because the fixed inference cost
 > (session setup, KV-cache init, kernel dispatch) is paid once per batch.
 
+## i18n-style translation: `t()` + `translateAll()`
+
+For UI strings spread across many components, the `t()` / `translateAll()`
+pattern is simpler than managing `translateBatch()` arrays yourself. Each
+component registers its strings with a single `t(key, text)` call; one
+`translateAll()` triggers a **single** `translateBatch()` for all registered
+strings — one inference call, no race conditions, no per-component arrays.
+
+The store lives inside core (`TranslationStore`). Angular binds to it via a
+signal that mirrors `store.snapshot()`. Components see only `t()` for
+registration and reading; the service wires the reactivity.
+
+### Step 1: Service — expose `t()` and `translateAll()` as signals
+
+```ts
+// src/app/translation.service.ts (additions)
+import { effect, signal, untracked } from "@angular/core";
+import { createTranslator, type Translator } from "@lite-translator/core";
+
+@Injectable({ providedIn: "root" })
+export class TranslationService {
+  private translator: Translator | null = null;
+  private tFn: ((key: string, text?: string) => string) | null = null;
+
+  /** Signal that mirrors the store snapshot; updates after translateAll(). */
+  readonly translations = signal<Record<string, string>>({});
+
+  /**
+   * Returns the bound t(key, text?) function. The first call creates the
+   * internal store; a shared effect keeps `translations()` in sync.
+   */
+  t(): (key: string, text?: string) => string {
+    if (!this.tFn) {
+      this.tFn = this.translator!.t();
+      const store = this.translator!.store()!;
+      store.subscribe(() => {
+        // untracked: snapshot is read imperatively, not in the effect graph
+        this.translations.set(untracked(() => store.snapshot()));
+      });
+    }
+    return this.tFn;
+  }
+
+  /** One inference call for all registered strings. */
+  async translateAll(): Promise<void> {
+    const translator = await this.create();
+    await translator.translateAll();
+  }
+}
+```
+
+### Step 2: Components — register strings, read reactively
+
+```ts
+// src/app/header.component.ts
+import { Component, inject } from "@angular/core";
+import { TranslationService } from "./translation.service";
+
+@Component({
+  selector: "app-header",
+  standalone: true,
+  template: `
+    <h1>{{ translations()["header.title"] }}</h1>
+    <p>{{ translations()["header.subtitle"] }}</p>
+  `,
+})
+export class HeaderComponent {
+  private readonly translation = inject(TranslationService);
+  readonly translations = this.translation.translations;
+
+  constructor() {
+    const t = this.translation.t();
+    t("header.title", "Willkommen");
+    t("header.subtitle", "Bitte wählen Sie eine Sprache");
+  }
+}
+```
+
+```ts
+// src/app/footer.component.ts
+import { Component, inject } from "@angular/core";
+import { TranslationService } from "./translation.service";
+
+@Component({
+  selector: "app-footer",
+  standalone: true,
+  template: `
+    <button>{{ translations()["footer.button"] }}</button>
+    <a href="#">{{ translations()["footer.link"] }}</a>
+  `,
+})
+export class FooterComponent {
+  private readonly translation = inject(TranslationService);
+  readonly translations = this.translation.translations;
+
+  constructor() {
+    const t = this.translation.t();
+    t("footer.button", "Bestätigen");
+    t("footer.link", "Abbrechen");
+  }
+}
+```
+
+### Step 3: Toolbar — one click, all components translated
+
+```ts
+// src/app/toolbar.component.ts
+import { Component, inject, signal } from "@angular/core";
+import { TranslationService } from "./translation.service";
+
+@Component({
+  selector: "app-toolbar",
+  standalone: true,
+  template: `
+    <button [disabled]="loading()" (click)="onTranslateAll()">
+      {{ loading() ? "Übersetze…" : "Alle übersetzen" }}
+    </button>
+  `,
+})
+export class ToolbarComponent {
+  private readonly translation = inject(TranslationService);
+  readonly loading = signal(false);
+
+  async onTranslateAll(): Promise<void> {
+    this.loading.set(true);
+    try {
+      await this.translation.translateAll();
+      // → 1× translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
+      // → signals in HeaderComponent and FooterComponent update automatically
+    } finally {
+      this.loading.set(false);
+    }
+  }
+}
+```
+
+> **Synchronous first render:** `t(key, text)` returns the original text
+> immediately, so the first paint shows German. After `translateAll()`, the
+> `translations()` signal updates and the templates re-render in English — no
+> manual wiring per component.
+>
+> **Deduplication:** If multiple components register the same value (e.g.
+> "Abbrechen" appears twice), core sends it to the engine only once.
+
 ## Notes
 
 - **Lazy loading:** `createTranslator()` does not load a model yet. Only `translate()` or `preload()` loads the model from the Hugging Face Hub.

@@ -9,11 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **WebGPU acceleration:** `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — 
-  default `"auto"`. Probes `navigator.gpu`; selects `webgpu`/`fp16` (or `webgpu`/`fp32`
-  without `shader-f16`), falling back to `wasm`/`bnb4`. `capabilities()` on
+- **i18n-style batch translation:** `translator.t()` returns a bound
+  `t(key, text?)` function (register + read in one call);
+  `translator.translateAll()` translates all registered strings in a single
+  `translateBatch()` — one inference, no race conditions. Reactive
+  `TranslationStore` notifies subscribers after translation. See
+  [docs/i18n-style-batch-translation.md](docs/i18n-style-batch-translation.md).
+- **WebGPU acceleration:** `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` —
+  default `"auto"`. Probes `navigator.gpu`; selects `webgpu`/`bnb4`, falling
+  back to `wasm`/`bnb4` when unavailable. `capabilities()` on
   `TransformersEngine` exposes the resolved `{ device, dtype }`. WebGPU→WASM
   fallback retry for `device: "auto"`; explicit `"webgpu"` throws if unavailable.
+  See [docs/webgpu-acceleration.md](docs/webgpu-acceleration.md).
 - `detectWebGpu()`, `isFp16Supported()`, `resolveDeviceDtype()` exported.
 - Worker protocol: `load` accepts `device`/`dtype`, posts `capabilities` before `loaded`.
 - `isCached()` is dtype-aware (`_fp16`/`_bnb4`/unsuffixed ONNX URLs).
@@ -25,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `@lite-translator/engine-onnx`: upgraded `@huggingface/transformers` to
   `^4.2.0`, models switched to `onnx-community/opus-mt-*`, default `wasm`+`bnb4`
   (MatMulNBits workaround).
+- WebGPU default dtype changed from `fp16` to `bnb4`: fp16 produces
+  empty/garbage output for short strings (UI labels, single words); bnb4
+  works reliably on both WebGPU and WASM with GPU acceleration.
 
 ## [0.1.0] — 2026-08-19
 

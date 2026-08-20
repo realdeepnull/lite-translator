@@ -1,0 +1,188 @@
+# i18n-Style Batch Translation
+
+`@lite-translator/core` provides an i18n-style API for translating many UI
+strings across components in a single inference call. Instead of managing
+`translateBatch()` arrays manually, each component registers its strings with
+a single `t(key, text)` call; one `translateAll()` translates everything at
+once — one model pass, no race conditions.
+
+This document explains the concept independently of any framework. For
+concrete integration code, see the framework guides:
+
+- [integration-angular.md](integration-angular.md)
+- [integration-react.md](integration-react.md)
+- [integration-vue.md](integration-vue.md)
+- [integration-html.md](integration-html.md)
+
+---
+
+## Why i18n-style?
+
+A typical app has dozens of short strings spread across many components —
+titles, button labels, descriptions, placeholders. Translating them one by one
+with `translate()` means N sequential inference calls. Translating them with
+`translateBatch()` per component means overlapping `pipe()` calls and race
+conditions unless you queue manually.
+
+The i18n-style pattern solves this with a **central store** inside core:
+
+| Approach | Race condition? | Inference calls | Complexity |
+| --- | --- | --- | --- |
+| Each component calls `translateBatch()` individually | ⚠️ yes — overlapping `pipe()` | N (one per component) | high — queue required |
+| `t()` + `translateAll()`, one `translateBatch()` | ✅ no — single call | **1** (for all components) | low |
+
+Components register strings during render; a single `translateAll()` collects
+all registered values, deduplicates identical ones, sends them in one
+`translateBatch()` to the engine, and writes the results back to the store.
+Frameworks react to the store update and re-render automatically.
+
+---
+
+## The two public methods
+
+### `translator.t()`
+
+Returns a bound `t(key, text?)` function. It is overloaded by argument count:
+
+- **`t("my.key", "Hallo")`** — registers the key with its original text.
+  Returns the original text **synchronously** so the first paint shows the
+  source language immediately.
+- **`t("my.key")`** — reads the current value. Before `translateAll()` this is
+  the original text; after `translateAll()` it is the translation. If the key
+  was never registered, the key itself is returned (i18n fallback convention,
+  avoids `undefined` in templates).
+
+```ts
+const t = translator.t();
+
+t("header.title", "Willkommen");   // → "Willkommen" (registers, returns original)
+t("header.title");                  // → "Willkommen" (reads current value)
+// …after translateAll()…
+t("header.title");                  // → "Welcome"   (reads translation)
+```
+
+### `translator.translateAll()`
+
+Translates all strings registered via `t()` in a single `translateBatch()`
+call. After resolving, the store is updated with the translated values and
+all subscribers are notified. Loads the model lazily on first call. If no
+strings are registered, it is a no-op (no engine call).
+
+```ts
+await translator.translateAll();
+```
+
+---
+
+## The store: `TranslationStore`
+
+The reactive store lives inside core — the application has no framework
+dependency from core. It is created lazily on the first `t()` call and is
+scoped to the translator instance (one store per language pair).
+
+### Key methods
+
+| Method | Description |
+| --- | --- |
+| `register(key, text)` | Stores `key → text` as the original value, notifies subscribers, returns `text`. |
+| `get(key)` | Returns the current value (`undefined` if never registered). |
+| `set(key, translated)` | Overwrites the value with a translation (internal use by `translateAll()`). |
+| `original(key)` | Returns the original text (never changes after `register`). |
+| `entries()` | Iterator over all `[key, value]` pairs (insertion order). |
+| `subscribe(listener)` | Registers a change listener, returns an unsubscribe function. |
+| `snapshot()` | Returns a plain `Record<string, string>` snapshot — for frameworks that compare by value. |
+| `clear()` | Removes all keys (optional, e.g. on language switch). |
+| `size` | Number of registered keys. |
+
+### Reactive binding per framework
+
+Core provides only `subscribe()` + `snapshot()`. Each framework binds this to
+its own reactivity primitive:
+
+| Framework | Binding |
+| --- | --- |
+| Angular | `signal()` mirroring `store.snapshot()`, updated in the `subscribe` callback |
+| React | `useSyncExternalStore(store.subscribe, store.snapshot)` |
+| Vue | `reactive()` snapshot, refreshed in the `subscribe` callback |
+| Vanilla JS | `store.subscribe()` → direct DOM updates |
+
+See the integration guides linked at the top for full code examples.
+
+---
+
+## How `translateAll()` works internally
+
+1. **Collect** all `[key, value]` pairs from the store.
+2. **Deduplicate** values with a `Set` — identical source strings share one
+   inference. If three buttons all say "Abbrechen", the engine receives it
+   once.
+3. **Call** `engine.translateBatch(uniqueValues, pair, options)` — exactly
+   one inference call for the whole app.
+4. **Map back** each unique value to its translation, then update every key
+   that originally held that value.
+5. **Notify** all subscribers so frameworks re-render.
+
+```
+t("a", "Abbrechen")
+t("b", "Abbrechen")
+t("c", "Willkommen")
+        ↓ translateAll()
+unique = ["Abbrechen", "Willkommen"]        ← deduplicated
+        ↓ engine.translateBatch(unique)
+["Cancel", "Welcome"]
+        ↓ map back by value
+store: { a: "Cancel", b: "Cancel", c: "Welcome" }
+        ↓ store.subscribe fires
+frameworks re-render
+```
+
+---
+
+## Lifecycle and scoping
+
+- **One store per translator.** `t()` is bound to the translator's language
+  pair (`from`/`to`). Multiple language pairs require multiple translator
+  instances, each with its own store.
+- **Synchronous first render.** `t(key, text)` returns the original text
+  immediately — no `await`, no loading state on first paint. The model loads
+  only when `translateAll()` is called.
+- **Lazy model load.** `translateAll()` loads the model on first call (like
+  `translate()` / `translateBatch()`). Subsequent calls reuse the loaded
+  model.
+- **Disposal.** `translator.dispose()` clears the store and terminates the
+  engine. After disposal, `t()` and `translateAll()` throw `TranslatorError`.
+
+---
+
+## When to use which API
+
+| Use case | API |
+| --- | --- |
+| Translate one string on demand | `translator.translate(text)` |
+| Translate a known array of strings | `translator.translateBatch(texts)` |
+| Translate many UI strings across components, one click | `t()` + `translateAll()` |
+| Reactive templates that update after translation | `t()` + `translateAll()` + framework binding |
+
+The i18n-style API is **additive** — `translate()` and `translateBatch()`
+remain unchanged and fully supported. Use `t()` / `translateAll()` when you
+want the central-store pattern; use `translateBatch()` directly when you
+already have an array of strings.
+
+---
+
+## Error handling
+
+`translateAll()` wraps engine errors in `TranslatorError` with
+`ERROR_CODES.TRANSLATION_FAILED`, consistent with `translateBatch()`. Existing
+`TranslatorError` instances from the engine pass through unchanged (e.g.
+`OFFLINE_MODEL_MISSING`).
+
+```ts
+try {
+  await translator.translateAll();
+} catch (err) {
+  if (err.code === "OFFLINE_MODEL_MISSING") {
+    // inform user that the model is not cached and offline
+  }
+}
+```

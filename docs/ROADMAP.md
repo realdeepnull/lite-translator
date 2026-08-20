@@ -201,7 +201,7 @@ const engine = createOnnxEngine({
 
 // After load, inspect the resolved device/dtype
 await translator.preload();
-console.log(engine.capabilities()); // { device: "webgpu", dtype: "fp16" } or { device: "wasm", dtype: "bnb4" }
+console.log(engine.capabilities()); // { device: "webgpu", dtype: "bnb4" } or { device: "wasm", dtype: "bnb4" }
 ```
 
 - `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — default `"auto"`
@@ -210,62 +210,43 @@ console.log(engine.capabilities()); // { device: "webgpu", dtype: "fp16" } or { 
 
 ### Step 11 — i18n-Style Batch Translation
 
-**Status:** ⬜ Open
+**Status:** ✅ Done
 
-Simpler batch usage so titles, descriptions and similar content can be translated quickly and easily — like an i18n library. Multiple components register their strings at a central store; a single `translateBatch()` call translates everything at once — one click, one inference, no race conditions.
+Simpler batch usage so titles, descriptions and similar content can be translated quickly and easily — like an i18n library. A single `t(key, string)` call registers and reads a string; `translateAll()` triggers one `translateBatch()` for all registered strings — one click, one inference, no race conditions. The store lives inside core; the application only sees `t()` and `translateAll()`.
 
-- `translateBatch()` overload that accepts a key-value map directly, no new API surface
-- preserves keys, only translates values; returns the same shape with translated strings
-- deduplication of identical values to avoid redundant inference
-- TypeScript overload returns `Record<string, string>` for object input, `TranslationResult[]` for array input
-- central store pattern: components register strings via `register(id, text)`, a single `translateAll()` triggers one `translateBatch()` for all registered strings
+- two public methods: `translator.t()` (returns a bound `t(key, string)` function) and `translator.translateAll()`
+- `t(key, string)` registers `key → string` in an internal store and returns the current value synchronously (original string first, translation after `translateAll()`)
+- `translateAll()` collects all registered values, deduplicates identical values, calls `translateBatch()` once and maps the results back to their keys
 - one inference call for all components — no overlapping `pipe()` calls, no race conditions
-- reactive updates: translated strings are exposed as a signal/store; component templates update automatically
+- reactive store lives inside core (platform-neutral `TranslationStore`); Angular/React/Vue bind it to their reactivity primitives via the existing integration examples (Step 13)
+- low-level `translateBatch()` overload accepting `Record<string, string>` remains as an escape hatch, but is no longer the primary use case
 
 ```ts
-// Existing: array input
-const results = await translator.translateBatch(["Hallo", "Welt"]);
+const t = translator.t(); // bound scope for this translator's language pair
 
-// New: object input — keys preserved, values translated
-const labels = await translator.translateBatch({
-  title: "Willkommen",
-  subtitle: "Bitte wählen Sie eine Sprache",
-  button: "Bestätigen",
-});
-// { title: "Welcome", subtitle: "Please select a language", button: "Confirm" }
-```
-
-#### Central store pattern (multi-component, single inference)
-
-Components register their strings at a shared store. A single button triggers `translateAll()`, which collects all registered strings and sends them in one `translateBatch()` call. Each component receives its translated strings reactively via signals.
-
-```ts
-// Component A (header)
-ngOnInit() {
-  store.register("header.title", "Willkommen");
-  store.register("header.subtitle", "Bitte wählen Sie eine Sprache");
-}
-// Template: {{ store.translations().get("header.title") }}
+// Component A (header) — register and read with one call
+t("header.title", "Willkommen");
+t("header.subtitle", "Bitte wählen Sie eine Sprache");
+// Template: {{ t("header.title") }}
 
 // Component B (footer)
-ngOnInit() {
-  store.register("footer.button", "Bestätigen");
-  store.register("footer.link", "Abbrechen");
-}
-// Template: {{ store.translations().get("footer.button") }}
+t("footer.button", "Bestätigen");
+t("footer.link", "Abbrechen");
+// Template: {{ t("footer.button") }}
 
 // Toolbar — one click, all components translated
-async onTranslateAll() {
-  await store.translateAll();
-  // → 1 translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
-  // → 1 inference call, results distributed to all components
-}
+await translator.translateAll();
+// → 1 translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
+// → 1 inference call, results mapped back to keys
+
+// After translateAll(), the same t(key) returns the translated string
+t("header.title"); // → "Welcome"
 ```
 
 | Approach | Race condition? | Inference calls | Complexity |
 | --- | --- | --- | --- |
 | Each component calls `translateBatch()` individually | ⚠️ yes — overlapping `pipe()` | N (one per component) | high — queue required |
-| **Central store, one `translateBatch()`** | ✅ no — single call | **1** (for all components) | low |
+| **`t()` + `translateAll()`, one `translateBatch()`** | ✅ no — single call | **1** (for all components) | low — app only sees `t()`/`translateAll()` |
 
 ---
 
@@ -286,7 +267,7 @@ Done:
 
 Missing:
 
-- i18n-style batch translation (Step 11)
+- (none — MVP scope complete)
 
 ---
 

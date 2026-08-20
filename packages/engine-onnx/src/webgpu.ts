@@ -83,13 +83,17 @@ export async function isFp16Supported(): Promise<boolean> {
 /**
  * Default dtype for each resolved device.
  *
- * - WebGPU: `fp16` (when shader-f16 is supported) or `fp32`
+ * - WebGPU: `bnb4` (BitsAndBytes 4-bit). fp16 produces empty/garbage output
+ *   for short strings (UI labels, single words) — the decoder hallucinates
+ *   repetitions and punctuation streams. bnb4 works reliably on both WebGPU
+ *   and WASM and is the proven-working quantized dtype on v4's
+ *   onnxruntime-web.
  * - WASM:   `bnb4` (the only proven-working quantized dtype on v4's
  *           onnxruntime-web — q8/int8/uint8/q4 all trigger MatMulNBits;
  *           fp32 triggers ShapeInferenceError)
  */
 const DEFAULT_DTYPE_FOR_DEVICE: Record<ResolvedDevice, ResolvedDtype> = {
-  webgpu: "fp16",
+  webgpu: "bnb4",
   wasm: "bnb4",
 };
 
@@ -98,9 +102,9 @@ const DEFAULT_DTYPE_FOR_DEVICE: Record<ResolvedDevice, ResolvedDtype> = {
  *
  * - `device: "wasm"` → `{ device: "wasm", dtype: dtype ?? "bnb4" }`
  * - `device: "webgpu"` → probes WebGPU; throws `Error` if unavailable;
- *   uses `fp16` (or `fp32` when shader-f16 is missing) unless `dtype` is given
- * - `device: "auto"` → probes WebGPU; if available + fp16 → `webgpu`/`fp16`;
- *   if available without fp16 → `webgpu`/`fp32`; if unavailable → `wasm`/`bnb4`
+ *   uses `bnb4` unless `dtype` is given explicitly
+ * - `device: "auto"` → probes WebGPU; if available → `webgpu`/`bnb4`;
+ *   if unavailable → `wasm`/`bnb4`
  *
  * When the caller provides an explicit `dtype` (not "auto"), it is used
  * directly. `q4f16` is accepted but triggers a console warning because it
@@ -130,9 +134,7 @@ export async function resolveDeviceDtype(
     }
     const resolvedDtype = wantsExplicitDtype
       ? (dtype as ResolvedDtype)
-      : (await isFp16Supported())
-        ? "fp16"
-        : "fp32";
+      : DEFAULT_DTYPE_FOR_DEVICE.webgpu;
     warnQ4f16(resolvedDtype);
     return { device: "webgpu", dtype: resolvedDtype };
   }
@@ -140,12 +142,9 @@ export async function resolveDeviceDtype(
   // --- Auto ---------------------------------------------------------------
   const webgpuAvailable = await detectWebGpu();
   if (webgpuAvailable) {
-    const fp16 = await isFp16Supported();
     const resolvedDtype = wantsExplicitDtype
       ? (dtype as ResolvedDtype)
-      : fp16
-        ? "fp16"
-        : "fp32";
+      : DEFAULT_DTYPE_FOR_DEVICE.webgpu;
     warnQ4f16(resolvedDtype);
     return { device: "webgpu", dtype: resolvedDtype };
   }

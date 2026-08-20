@@ -11,6 +11,7 @@ export {
   withBatchFallback,
 } from "./engine.js";
 export type { TranslationEngine } from "./engine.js";
+export { TranslationStore } from "./store.js";
 export {
   createStaticRegistry,
   isStaticRegistry,

@@ -5,6 +5,7 @@ import {
   createTranslator,
   isTranslatorError,
   withBatchFallback,
+  TranslationStore,
 } from "../src/index.js";
 import type { TranslationEngine } from "../src/index.js";
 import type { LanguagePair, TranslationResult } from "../src/index.js";
@@ -224,6 +225,156 @@ describe("withBatchFallback", () => {
     const pair: LanguagePair = { from: "de", to: "en" };
     const results = await wrapped.translateBatch(["a", "b", "c"], pair);
     expect(results.map((r) => r.text)).toEqual(["[en] a", "[en] b", "[en] c"]);
+  });
+});
+
+describe("Translator.t (i18n-style)", () => {
+  it("t(key, text) registriert und liefert den Originaltext synchron", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    expect(t("title", "Willkommen")).toBe("Willkommen");
+    expect(t("title")).toBe("Willkommen");
+  });
+
+  it("t(key) ohne Registrierung liefert den Key als Fallback", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    expect(t("missing.key")).toBe("missing.key");
+  });
+
+  it("store() ist undefined bevor t() aufgerufen wurde", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    expect(translator.store()).toBeUndefined();
+    translator.t();
+    expect(translator.store()).toBeInstanceOf(TranslationStore);
+  });
+});
+
+describe("Translator.translateAll", () => {
+  it("ruft translateBatch genau einmal für mehrere Registrierungen", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("header.title", "Willkommen");
+    t("header.subtitle", "Bitte wählen");
+    t("footer.button", "Bestätigen");
+    await translator.translateAll();
+    expect(engine.translateBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("übersetzt registrierte Keys und aktualisiert den Store", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Willkommen");
+    t("button", "Bestätigen");
+    await translator.translateAll();
+    expect(t("title")).toBe("[en] Willkommen");
+    expect(t("button")).toBe("[en] Bestätigen");
+  });
+
+  it("dedupliziert identische Werte zu einem Inference-Aufruf", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("a", "Abbrechen");
+    t("b", "Abbrechen");
+    t("c", "Abbrechen");
+    await translator.translateAll();
+    // Engine bekommt nur den einen eindeutigen Wert
+    expect(engine.translateBatch).toHaveBeenCalledTimes(1);
+    const calledTexts = (engine.translateBatch as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(calledTexts).toEqual(["Abbrechen"]);
+    // Alle drei Keys erhalten dieselbe Übersetzung
+    expect(t("a")).toBe("[en] Abbrechen");
+    expect(t("b")).toBe("[en] Abbrechen");
+    expect(t("c")).toBe("[en] Abbrechen");
+  });
+
+  it("lädt das Modell lazy beim ersten translateAll", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Hallo");
+    expect(engine.load).not.toHaveBeenCalled();
+    await translator.translateAll();
+    expect(engine.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("ist ein No-op ohne registrierte Strings und ruft die Engine nicht auf", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    translator.t(); // Store erstellen, aber nichts registriert
+    await translator.translateAll();
+    expect(engine.translateBatch).not.toHaveBeenCalled();
+  });
+
+  it("benachrichtigt Subscriber nach der Übersetzung (reaktiver Update)", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Hallo");
+    const store = translator.store()!;
+    const listener = vi.fn();
+    store.subscribe(listener);
+    await translator.translateAll();
+    // register (1) + translateAll set (1)
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("lässt Leerstrings unverändert durch (Engine-Verhalten)", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("empty", "");
+    await translator.translateAll();
+    expect(t("empty")).toBe("[en] ");
+  });
+
+  it("wrapt Engine-Fehler in TRANSLATION_FAILED", async () => {
+    const engine = createMockEngine();
+    (engine.translateBatch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("boom"),
+    );
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Hallo");
+    await expect(translator.translateAll()).rejects.toMatchObject({
+      code: ERROR_CODES.TRANSLATION_FAILED,
+    });
+  });
+
+  it("lässt TranslatorError des Engines unverändert durch", async () => {
+    const engine = createMockEngine();
+    (engine.translateBatch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new TranslatorError(ERROR_CODES.OFFLINE_MODEL_MISSING, "offline"),
+    );
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Hallo");
+    await expect(translator.translateAll()).rejects.toMatchObject({
+      code: ERROR_CODES.OFFLINE_MODEL_MISSING,
+    });
+  });
+
+  it("wirft nach dispose", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Hallo");
+    await translator.dispose();
+    await expect(translator.translateAll()).rejects.toBeInstanceOf(TranslatorError);
+  });
+
+  it("t() nach dispose wirft", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    translator.t();
+    await translator.dispose();
+    expect(() => translator.t()("a", "b")).toThrow(TranslatorError);
   });
 });
 
