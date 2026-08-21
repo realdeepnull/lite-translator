@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Live translation:** `translator.createLiveSession({ debounce })` returns a `LiveSession` that translates incrementally as the user types (chat) or as speech-to-text streams words in. Input is segmented at sentence boundaries; completed sentences are cached and only the still-growing tail is re-translated on each `update()`. Outdated results are discarded by a monotonic sequence number; identical consecutive inputs skip inference. Event-based: `live.on("translation", (e) => …)` with `LiveTranslationEvent` (`text`, `source`, `partial`, `segments`). See [docs/live-translation.md](docs/live-translation.md).
+- New `createEmitter()` typed event emitter (framework-neutral, platform-neutral).
+- `splitSegments()` exported for advanced/manual segmentation.
 - **More languages:** default ONNX registry now ships `fr ↔ en`, `es ↔ en`, `it ↔ en`, `nl ↔ en` alongside `de ↔ en` (demand-loaded, cached). Unregistered pairs still throw `LANGUAGE_PAIR_NOT_SUPPORTED`.
 - New `VITE_MODEL_ID_*` env overrides + `ImportMetaEnv` declarations for all
   additional pairs (`FR_EN`, `EN_FR`, `ES_EN`, `EN_ES`, `IT_EN`, `EN_IT`, `NL_EN`, `EN_NL`).

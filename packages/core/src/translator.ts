@@ -1,9 +1,11 @@
 import { ERROR_CODES, TranslatorError } from "./errors.js";
 import type { TranslationEngine } from "./engine.js";
 import { getDefaultEngines } from "./engine.js";
+import { LiveSession } from "./live-session.js";
 import { TranslationStore } from "./store.js";
 import type {
   LanguagePair,
+  LiveSessionOptions,
   ProgressCallback,
   TranslateOptions,
   TranslationResult,
@@ -164,6 +166,26 @@ export class Translator {
         cause: error,
       });
     }
+  }
+
+  /**
+   * Creates a live translation session for incremental input — e.g. typing in
+   * a chat or streaming words from speech-to-text.
+   *
+   * The session segments input at sentence boundaries, caches translations
+   * of completed sentences, and only re-translates the still-growing tail on
+   * each `update()`. Outdated results are discarded automatically.
+   *
+   * @example
+   * ```ts
+   * const live = translator.createLiveSession({ debounce: 250 });
+   * live.on("translation", (e) => console.log(e.text));
+   * live.update("Hallo wie geht");
+   * ```
+   */
+  createLiveSession(options?: LiveSessionOptions): LiveSession {
+    this.#assertNotDisposed();
+    return new LiveSession(this, options);
   }
 
   /** true, wenn das Modell geladen und sofort einsatzbereit ist. */

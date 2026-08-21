@@ -60,6 +60,26 @@ Identical values are deduplicated before inference. See
 [i18n-style batch translation](../../docs/i18n-style-batch-translation.md) for
 the full guide and framework integration examples.
 
+### Live translation
+
+For chat messages or speech-to-text, `createLiveSession()` translates
+incrementally as the user types. Input is segmented at sentence boundaries;
+completed sentences are cached and only the still-growing tail is
+re-translated on each `update()`. Outdated results are discarded automatically.
+
+```ts
+const live = translator.createLiveSession({ debounce: 250 });
+
+live.on("translation", (e) => {
+  console.log(e.text);    // full translation
+  console.log(e.partial); // still-growing tail
+});
+
+live.update("Hallo wie geht");
+```
+
+See [live translation](../../docs/live-translation.md) for the full guide.
+
 ## API
 
 - `createTranslator(options)` — creates a translator (no model download on import)
@@ -71,6 +91,9 @@ the full guide and framework integration examples.
   registration and reading of UI strings
 - `translator.translateAll()` — translates all strings registered via `t()`
   in one `translateBatch()` call; updates the store and notifies subscribers
+- `translator.createLiveSession(options?)` — creates a `LiveSession` for
+  incremental live translation (chat / speech-to-text); segments input,
+  caches completed sentences, discards outdated results
 - `translator.store()` — the reactive `TranslationStore` backing `t()` (created
   lazily on first `t()` call; `undefined` before that)
 - `translator.isReady()` — model loaded and ready

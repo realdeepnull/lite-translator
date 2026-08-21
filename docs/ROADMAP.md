@@ -262,89 +262,11 @@ Additional language pairs after German/English are stable.
 
 ---
 
-### Step 13 — Release v0.1
+### Step 13 — Live Translation
 
-**Status:** 🟡 Partial
+**Status:** ✅ Done
 
-MVP release: local translation `de ↔ en` with full lifecycle.
-
-Done:
-
-- TypeScript API, engine abstraction, `de ↔ en`, local inference
-- lazy loading, model cache, offline, web worker
-- `translate()`, `preload()`, `dispose()`, progress events, error codes
-- `translateBatch()` (Step 9)
-- WebGPU Acceleration (Step 10)
-- basic tests and browser demo
-
-Missing:
-
-- More Languages
-
----
-
-### Step 14 — Developer Experience (v0.2)
-
-**Status:** 🟡 Partial
-
-Better debug output, cache management and integration.
-
-Done:
-
-- integration examples for Vanilla JS, React, Vue and Angular
-
-Missing:
-
-- debug output
-- `capabilities()`
-- cache management
-- performance metrics
-- better live sessions
-- `AbortSignal`
-- Svelte example
-
----
-
-### Step 15 — Engine Ecosystem (v0.3)
-
-**Status:** 🟡 Partial
-
-Additional local engines without changing the public API.
-
-Done:
-
-- `@lite-translator/engine-onnx` exists
-
-Missing:
-
-- another local engine package (e.g. `@lite-translator/engine-wasm`)
-
-```text
-@lite-translator/core
-@lite-translator/engine-wasm
-@lite-translator/engine-onnx
-```
-
----
-
-### Step 15 — Evaluate Smart Path (v0.4)
-
-**Status:** ⬜ Open
-
-An optional Smart Path as a separate local engine.
-
-- not yet started
-- e.g. a small local LLM or a larger local MT model
-- must never be required by the Fast Path
-- provider APIs and cloud fallbacks remain excluded
-
----
-
-### Step 16 — Live Translation (v0.5)
-
-**Status:** ⬜ Open
-
-Translation while typing without unnecessary inference.
+Translation while typing without unnecessary inference — for chat messages and speech-to-text, where words stream in incrementally and the translation should “grow” with the input.
 
 ```ts
 const live = translator.createLiveSession({ debounce: 250 });
@@ -356,9 +278,75 @@ live.on("translation", (result) => {
 live.update("Hallo wie geht es dir?");
 ```
 
-- `createLiveSession()` is not yet implemented
-- batching of input, discarding outdated results, avoiding identical requests
-- optional simple segmentation; token streaming not required
+Implemented:
+
+- `createLiveSession({ debounce })` returns a `LiveSession` bound to the translator’s language pair
+- **segmentation** at sentence boundaries (`.`, `!`, `?`, `;`, newlines): complete segments vs. a single growing “partial” tail
+- **segment cache** (`Map<source, translation>`): completed sentences are translated once and reused across updates — only the partial is re-translated on each `update()`
+- **discard-by-sequence**: a monotonic sequence number discards outdated `translateBatch()` results when a newer `update()` arrives before inference finishes
+- **identical-input skip**: consecutive `update()` calls with the same text skip inference entirely
+- event-based `LiveSession` (`on`/`once`/`off`/`emit`) via a new framework-neutral `createEmitter()`
+- `LiveTranslationEvent` exposes `text` (full translation), `source` (original input), `partial` (growing tail), and `segments` (`LiveSegment[]` with `complete` flag) for UIs that render finished sentences firmly and the active fragment with a “typing” style
+- `clear()` resets the cache for a new chat message or speech turn
+- `dispose()` stops pending debounced work and releases the emitter
+- core-only feature — no engine/worker protocol changes; uses the existing `translateBatch()`
+- token streaming not required (and not implemented)
+
+See [docs/live-translation.md](live-translation.md).
+
+---
+
+### Step 14 — Release v0.1
+
+**Status:** ✅ Done
+
+MVP release: local translation `de ↔ en` with full lifecycle.
+
+Done:
+
+- TypeScript API, engine abstraction, `de ↔ en`, local inference
+- lazy loading, model cache, offline, web worker
+- `translate()`, `preload()`, `dispose()`, progress events, error codes
+- `translateBatch()` (Step 9)
+- WebGPU Acceleration (Step 10)
+- basic tests and browser demo
+- More Languages (Step 12)
+- Live Translation (Step 13)
+
+---
+
+### Step 15 — Developer Experience (v0.2)
+
+**Status:** 🟡 Partial
+
+Better debug output, cache management and integration.
+
+Done:
+
+- integration examples for Vanilla JS, React, Vue and Angular
+- live sessions (`createLiveSession()`, Step 13)
+
+Missing:
+
+- debug output
+- `capabilities()`
+- cache management
+- performance metrics
+- `AbortSignal`
+- Svelte example
+
+---
+
+### Step 16 — Evaluate Smart Path (v0.3)
+
+**Status:** ⬜ Open
+
+An optional Smart Path as a separate local engine.
+
+- not yet started
+- e.g. a small local LLM or a larger local MT model
+- must never be required by the Fast Path
+- provider APIs and cloud fallbacks remain excluded
 
 ---
 

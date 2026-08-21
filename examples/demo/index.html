@@ -376,15 +376,21 @@
         <div class="progress-label" id="progress-label">Bereit.</div>
       </div>
 
-      <!-- Live-Eingabe (für späteres Live-Übersetzen) -->
+      <!-- Live-Eingabe (Live-Übersetzung mit Debouncing) -->
       <section class="card">
         <h2>Live-Eingabe</h2>
-        <p class="help">Eingabefeld für eine spätere Live-Übersetzung mit Debouncing. Heute wird beim Klick auf „Übersetzen“ einmalig übersetzt.</p>
+        <p class="help">Live-Übersetzung während des Tippens — wie bei Chat-Nachrichten oder Speech-to-Text. Sätze werden segmentiert; fertige Sätze werden gecacht und nur der wachsende Rest wird neu übersetzt. Veraltete Ergebnisse werden automatisch verworfen.</p>
+        <label class="toggle" for="live-mode">
+          <input type="checkbox" id="live-mode" checked />
+          <span class="track"></span>
+          <span>Live-Modus (während des Tippens übersetzen)</span>
+        </label>
         <label class="field" for="src">Quelltext</label>
         <textarea id="src" placeholder="Text eingeben …">Hallo Welt, wie geht es dir?</textarea>
         <div class="actions" style="margin-top:0.85rem">
           <button id="run" class="primary" type="button">Übersetzen</button>
           <button id="clear-live" type="button">Leeren</button>
+          <span id="live-status" style="font-size:0.8rem;color:var(--text-muted);font-variant-numeric:tabular-nums"></span>
         </div>
         <div class="row" style="margin-top:0.85rem">
           <div>
@@ -394,6 +400,8 @@
           <div>
             <label class="field">Übersetzung</label>
             <div class="out placeholder" id="out" aria-live="polite">(leer)</div>
+            <label class="field" style="margin-top:0.6rem">Wachsender Teil (partial)</label>
+            <div class="out placeholder" id="partial-out" style="min-height:2rem;font-style:italic">(leer)</div>
           </div>
         </div>
       </section>
@@ -502,8 +510,11 @@
       const src = document.getElementById("src");
       const srcMirror = document.getElementById("src-mirror");
       const out = document.getElementById("out");
+      const partialOut = document.getElementById("partial-out");
       const runBtn = document.getElementById("run");
       const clearLiveBtn = document.getElementById("clear-live");
+      const liveStatus = document.getElementById("live-status");
+      const liveModeToggle = document.getElementById("live-mode");
 
       const batchAllToggle = document.getElementById("batch-all");
       const batchContainer = document.getElementById("batch");
@@ -587,7 +598,9 @@
         return `Fehler: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
       }
 
-      // ----- Live-Section -----
+      // ----- Live-Section (LiveSession mit Debouncing) -----
+      let liveSession = null;
+
       function renderLive() {
         const value = src.value.trim();
         if (value) {
@@ -599,15 +612,46 @@
         }
       }
 
+      /** Erstellt eine neue LiveSession für den aktuellen Translator. */
+      async function ensureLiveSession() {
+        const t = await ensureReady();
+        if (!liveSession || liveSession.disposed) {
+          liveSession = t.createLiveSession({ debounce: 300 });
+          liveSession.on("translation", (e) => {
+            out.textContent = e.text || "(leer)";
+            out.classList.toggle("placeholder", !e.text);
+            partialOut.textContent = e.partial || "(leer)";
+            partialOut.classList.toggle("placeholder", !e.partial);
+            const done = e.segments.filter((s) => s.complete).length;
+            liveStatus.textContent = `${done}/${e.segments.length} Sätze fertig`;
+          });
+          liveSession.on("error", (err) => {
+            out.textContent = formatError(err);
+            out.classList.remove("placeholder");
+            liveStatus.textContent = "Fehler";
+          });
+        }
+        return liveSession;
+      }
+
       runBtn.addEventListener("click", async () => {
         runBtn.disabled = true;
         out.textContent = "Übersetze …";
         out.classList.remove("placeholder");
         try {
-          const t = await ensureReady();
-          const result = await t.translate(src.value);
-          out.textContent = result.text;
-          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
+          if (liveModeToggle.checked) {
+            const live = await ensureLiveSession();
+            live.update(src.value);
+          } else {
+            // Klassischer Modus: einmalig übersetzen via translate().
+            const t = await ensureReady();
+            const result = await t.translate(src.value);
+            out.textContent = result.text;
+            out.classList.remove("placeholder");
+            partialOut.textContent = "(leer)";
+            partialOut.classList.add("placeholder");
+            liveStatus.textContent = "";
+          }
         } catch (err) {
           out.textContent = formatError(err);
           setStatus("error", "Fehler bei der Übersetzung");
@@ -620,11 +664,38 @@
         src.value = "";
         out.textContent = "(leer)";
         out.classList.add("placeholder");
+        partialOut.textContent = "(leer)";
+        partialOut.classList.add("placeholder");
+        liveStatus.textContent = "";
         renderLive();
+        if (liveSession && !liveSession.disposed) live.clear();
       });
 
-      src.addEventListener("input", renderLive);
+      // Live-Update während des Tippens (nur im Live-Modus).
+      src.addEventListener("input", async () => {
+        renderLive();
+        if (!liveModeToggle.checked) return;
+        try {
+          const live = await ensureLiveSession();
+          live.update(src.value);
+        } catch {
+          // Modell noch nicht bereit — wird beim nächsten input erneut versucht.
+        }
+      });
       renderLive();
+
+      // Umschaltung Live-Modus: LiveSession freigeben, Partial verstecken.
+      liveModeToggle.addEventListener("change", () => {
+        if (!liveModeToggle.checked) {
+          liveSession?.dispose();
+          liveSession = null;
+          partialOut.textContent = "(leer)";
+          partialOut.classList.add("placeholder");
+          liveStatus.textContent = "";
+          out.textContent = "(leer)";
+          out.classList.add("placeholder");
+        }
+      });
 
       // ----- Batch-Section -----
       function renderBatchItems() {
@@ -817,8 +888,17 @@
       }
 
       // ----- Sprachwechsel & Vorladen -----
-      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
-      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      function resetLiveOnLangChange() {
+        liveSession?.dispose();
+        liveSession = null;
+        out.textContent = "(leer)";
+        out.classList.add("placeholder");
+        partialOut.textContent = "(leer)";
+        partialOut.classList.add("placeholder");
+        liveStatus.textContent = "";
+      }
+      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); resetLiveOnLangChange(); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); resetLiveOnLangChange(); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
 
       preloadBtn.addEventListener("click", async () => {
         preloadBtn.disabled = true;

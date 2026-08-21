@@ -54,6 +54,6 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@lite-translator/core": "^0.1.0"
+    "@lite-translator/core": "^0.2.0"
   }
 }
