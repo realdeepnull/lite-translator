@@ -53,7 +53,6 @@ export function splitSegments(input: string): Segmentation {
     return { complete: [], partial: "" };
   }
   const complete: string[] = [];
-  let partial = "";
   let lastIndex = 0;
   for (const match of input.matchAll(SEGMENT_SPLIT)) {
     const chunk = match[0] ?? "";
@@ -63,7 +62,7 @@ export function splitSegments(input: string): Segmentation {
       complete.push(trimmed);
     }
   }
-  partial = input.slice(lastIndex);
+  const partial = input.slice(lastIndex);
   // When splitting leaves no trailing partial (input ends at a boundary),
   // the loop already consumed everything and partial is "" — correct.
   return { complete, partial: partial.trim() === "" ? "" : partial };
