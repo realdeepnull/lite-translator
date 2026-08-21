@@ -13,6 +13,14 @@ const HF_BASE = "https://huggingface.co";
 export const defaultModelIds: Record<string, string> = {
   "de-en": import.meta.env?.VITE_MODEL_ID_DE_EN ?? "onnx-community/opus-mt-de-en",
   "en-de": import.meta.env?.VITE_MODEL_ID_EN_DE ?? "onnx-community/opus-mt-en-de",
+  "fr-en": import.meta.env?.VITE_MODEL_ID_FR_EN ?? "onnx-community/opus-mt-fr-en",
+  "en-fr": import.meta.env?.VITE_MODEL_ID_EN_FR ?? "onnx-community/opus-mt-en-fr",
+  "es-en": import.meta.env?.VITE_MODEL_ID_ES_EN ?? "onnx-community/opus-mt-es-en",
+  "en-es": import.meta.env?.VITE_MODEL_ID_EN_ES ?? "onnx-community/opus-mt-en-es",
+  "it-en": import.meta.env?.VITE_MODEL_ID_IT_EN ?? "onnx-community/opus-mt-it-en",
+  "en-it": import.meta.env?.VITE_MODEL_ID_EN_IT ?? "onnx-community/opus-mt-en-it",
+  "nl-en": import.meta.env?.VITE_MODEL_ID_NL_EN ?? "onnx-community/opus-mt-nl-en",
+  "en-nl": import.meta.env?.VITE_MODEL_ID_EN_NL ?? "onnx-community/opus-mt-en-nl",
 };
 
 /** Creates the static model registry for the given pair-to-model-ID entries. */

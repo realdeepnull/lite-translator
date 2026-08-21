@@ -2,7 +2,7 @@
 
 Local machine-translation engine for lite-translator, powered by [Transformers.js](https://huggingface.co/docs/transformers.js) in a Web Worker.
 
-- Quantized OPUS-MT models for `de ↔ en` (loaded from the Hugging Face Hub)
+- Quantized OPUS-MT models for `de ↔ en`, `fr ↔ en`, `es ↔ en`, `it ↔ en`, `nl ↔ en` (loaded from the Hugging Face Hub)
 - Inference runs in a Web Worker (UI stays responsive)
 - Models are cached in the browser (Cache Storage) and work offline after the first download
 - **WebGPU acceleration** with automatic WASM fallback (Step 10)
@@ -71,3 +71,41 @@ const translator = await createTranslator({ from: "de", to: "en", engines: [engi
 await translator.preload();
 console.log(engine.capabilities()); // { device: "webgpu", dtype: "fp16" } or { device: "wasm", dtype: "bnb4" }
 ```
+
+## Supported language pairs
+
+The default registry ships quantized OPUS-MT models for the following pairs.
+Each pair is demand-loaded on first use and cached for offline access.
+
+| Pair    | Default model ID                      |
+|---------|----------------------------------------|
+| `de-en` | `onnx-community/opus-mt-de-en`         |
+| `en-de` | `onnx-community/opus-mt-en-de`         |
+| `fr-en` | `onnx-community/opus-mt-fr-en`         |
+| `en-fr` | `onnx-community/opus-mt-en-fr`         |
+| `es-en` | `onnx-community/opus-mt-es-en`         |
+| `en-es` | `onnx-community/opus-mt-en-es`         |
+| `it-en` | `onnx-community/opus-mt-it-en`         |
+| `en-it` | `onnx-community/opus-mt-en-it`         |
+| `nl-en` | `onnx-community/opus-mt-nl-en`         |
+| `en-nl` | `onnx-community/opus-mt-en-nl`         |
+
+Any other pair throws `LANGUAGE_PAIR_NOT_SUPPORTED` at translator creation.
+
+### Custom models
+
+Override the default mapping via `createOnnxEngine({ models })` or pass a fully
+custom registry via `createOnnxEngine({ registry })`:
+
+```ts
+const engine = createOnnxEngine({
+  models: {
+    "de-en": "onnx-community/opus-mt-de-en",
+    "en-de": "onnx-community/opus-mt-en-de",
+    "fr-en": "onnx-community/opus-mt-fr-en",
+  },
+});
+```
+
+Each model ID can also be set through the matching `VITE_MODEL_ID_*` environment
+variable, which takes precedence over the built-in default.

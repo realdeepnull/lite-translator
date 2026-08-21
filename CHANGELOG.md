@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **More languages:** default ONNX registry now ships `fr ↔ en`, `es ↔ en`, `it ↔ en`, `nl ↔ en` alongside `de ↔ en` (demand-loaded, cached). Unregistered pairs still throw `LANGUAGE_PAIR_NOT_SUPPORTED`.
+- New `VITE_MODEL_ID_*` env overrides + `ImportMetaEnv` declarations for all
+  additional pairs (`FR_EN`, `EN_FR`, `ES_EN`, `EN_ES`, `IT_EN`, `EN_IT`, `NL_EN`, `EN_NL`).
 - **i18n-style batch translation:** `translator.t()` returns a bound
   `t(key, text?)` function (register + read in one call);
   `translator.translateAll()` translates all registered strings in a single

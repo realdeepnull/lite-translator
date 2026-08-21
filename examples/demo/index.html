@@ -356,11 +356,19 @@
           <select id="from" aria-label="Quellsprache">
             <option value="de" selected>Deutsch</option>
             <option value="en">Englisch</option>
+            <option value="fr">Französisch</option>
+            <option value="es">Spanisch</option>
+            <option value="it">Italienisch</option>
+            <option value="nl">Niederländisch</option>
           </select>
           →
           <select id="to" aria-label="Zielsprache">
             <option value="en" selected>Englisch</option>
             <option value="de">Deutsch</option>
+            <option value="fr">Französisch</option>
+            <option value="es">Spanisch</option>
+            <option value="it">Italienisch</option>
+            <option value="nl">Niederländisch</option>
           </select>
         </div>
         <button id="preload" type="button">Modell vorladen</button>
@@ -799,9 +807,18 @@
         i18nStats.textContent = "";
       });
 
+      // Verhindert Quellsprache == Zielsprache (kein registriertes Paar).
+      function preventSameLang(changed, other) {
+        if (changed.value === other.value) {
+          const opts = [...other.options];
+          const idx = opts.findIndex((o) => o.value !== changed.value);
+          other.selectedIndex = Math.max(0, idx);
+        }
+      }
+
       // ----- Sprachwechsel & Vorladen -----
-      fromSel.addEventListener("change", () => { translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
-      toSel.addEventListener("change", () => { translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
 
       preloadBtn.addEventListener("click", async () => {
         preloadBtn.disabled = true;

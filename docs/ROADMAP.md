@@ -243,14 +243,26 @@ await translator.translateAll();
 t("header.title"); // → "Welcome"
 ```
 
-| Approach | Race condition? | Inference calls | Complexity |
-| --- | --- | --- | --- |
-| Each component calls `translateBatch()` individually | ⚠️ yes — overlapping `pipe()` | N (one per component) | high — queue required |
-| **`t()` + `translateAll()`, one `translateBatch()`** | ✅ no — single call | **1** (for all components) | low — app only sees `t()`/`translateAll()` |
+| Approach                                             | Race condition?               | Inference calls            | Complexity                                 |
+| ---------------------------------------------------- | ----------------------------- | -------------------------- | ------------------------------------------ |
+| Each component calls `translateBatch()` individually | ⚠️ yes — overlapping `pipe()` | N (one per component)      | high — queue required                      |
+| **`t()` + `translateAll()`, one `translateBatch()`** | ✅ no — single call           | **1** (for all components) | low — app only sees `t()`/`translateAll()` |
 
 ---
 
-### Step 12 — Release v0.1
+### Step 12 — More Languages
+
+**Status:** ✅ Done
+
+Additional language pairs after German/English are stable.
+
+- `de ↔ en` registered
+- additional supported pairs: `fr ↔ en`, `es ↔ en`, `it ↔ en`, `nl ↔ en`
+- models remain demand-loaded
+
+---
+
+### Step 13 — Release v0.1
 
 **Status:** 🟡 Partial
 
@@ -267,11 +279,11 @@ Done:
 
 Missing:
 
-- (none — MVP scope complete)
+- More Languages
 
 ---
 
-### Step 13 — Developer Experience (v0.2)
+### Step 14 — Developer Experience (v0.2)
 
 **Status:** 🟡 Partial
 
@@ -293,19 +305,7 @@ Missing:
 
 ---
 
-### Step 14 — More Languages (v0.3)
-
-**Status:** ⬜ Open
-
-Additional language pairs after German/English are stable.
-
-- only `de ↔ en` registered; no other language pairs
-- planned: `FR ↔ EN`, `ES ↔ EN`, `IT ↔ EN`, `NL ↔ EN`
-- models remain demand-loaded
-
----
-
-### Step 15 — Engine Ecosystem (v0.4)
+### Step 15 — Engine Ecosystem (v0.3)
 
 **Status:** 🟡 Partial
 
@@ -327,7 +327,7 @@ Missing:
 
 ---
 
-### Step 16 — Evaluate Smart Path (v0.5)
+### Step 15 — Evaluate Smart Path (v0.4)
 
 **Status:** ⬜ Open
 
@@ -340,7 +340,7 @@ An optional Smart Path as a separate local engine.
 
 ---
 
-### Step 17 — Live Translation (v0.6)
+### Step 16 — Live Translation (v0.5)
 
 **Status:** ⬜ Open
 
@@ -362,7 +362,7 @@ live.update("Hallo wie geht es dir?");
 
 ---
 
-### Step 18 — Release 1.0
+### Step 17 — Release 1.0
 
 **Status:** ⬜ Open
 
