@@ -13,12 +13,11 @@ test-results/
 **/*.jpeg
 **/*.webp
 **/*.gif
-lite-translator-core-0.0.1.tgz
-lite-translator-engine-onnx-0.0.1.tgz
-lite-translator-core-0.1.0.tgz
-lite-translator-engine-onnx-0.1.0.tgz
+lite-translator-core-*.tgz
+lite-translator-engine-onnx-*.tgz
 lite-translator-mvp.md
 npm-library-tooling.md
 AGENTS.md
 tarball-installation.md
 perf-translator-batch.md
+OPTIMIZATION-ANALYSIS.md

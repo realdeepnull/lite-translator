@@ -46,7 +46,7 @@ Create `index.html`:
     <progress id="bar" max="1" value="0" style="width:100%"></progress>
 
     <script type="module">
-      import { createTranslator } from "@lite-translator/core";
+      import { createTranslator, formatTranslatorError } from "@lite-translator/core";
       import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
       const src = document.getElementById("src");
@@ -69,13 +69,18 @@ Create `index.html`:
           out.value = result.text;
           bar.value = 1;
         } catch (err) {
-          out.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+          out.value = formatTranslatorError(err);
         }
       });
     </script>
   </body>
 </html>
 ```
+
+> **AbortSignal:** `translate()` accepts an optional `AbortSignal` via
+> `{ signal }`. When the signal is already aborted, the call rejects with
+> `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
+> translations when the user switches language mid-flight.
 
 Start a static server (ES modules require HTTP, not `file://`):
 
@@ -139,7 +144,7 @@ passed through unchanged. Batches larger than 32 texts are chunked automatically
       out.value = results.map((r) => r.text).join("\n");
       await translator.dispose();
     } catch (err) {
-      out.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+      out.value = formatTranslatorError(err);
     }
   });
 </script>
@@ -184,7 +189,7 @@ The store lives inside core (`TranslationStore`). Vanilla JS binds to it via
     <output id="status"></output>
 
     <script type="module">
-      import { createTranslator } from "@lite-translator/core";
+      import { createTranslator, formatTranslatorError } from "@lite-translator/core";
       import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
       const status = document.getElementById("status");
@@ -222,7 +227,7 @@ The store lives inside core (`TranslationStore`). Vanilla JS binds to it via
           // → store.subscribe fires → DOM updates automatically
           status.value = "Fertig — 1 Batch-Aufruf für alle Komponenten";
         } catch (err) {
-          status.value = `Error: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
+          status.value = formatTranslatorError(err);
         } finally {
           translateAllBtn.disabled = false;
         }
@@ -239,6 +244,113 @@ The store lives inside core (`TranslationStore`). Vanilla JS binds to it via
 >
 > **Deduplication:** If multiple elements register the same value (e.g.
 > "Abbrechen" appears twice), core sends it to the engine only once.
+
+## Live translation (while typing)
+
+`translator.createLiveSession({ debounce })` translates **while the user
+types** — ideal for chat messages or speech-to-text. The session segments the
+input at sentence boundaries, caches translations of completed sentences, and
+only re-translates the still-growing tail on each `update()`. Outdated results
+are discarded automatically.
+
+See [live-translation.md](live-translation.md) for the full concept. This is the
+vanilla HTML binding.
+
+```html
+<textarea id="liveSrc" rows="4">Hallo Welt. Wie geht es dir?</textarea>
+<output id="liveOut" aria-live="polite"></output>
+<output id="livePartial" style="opacity: 0.6"></output>
+
+<script type="module">
+  import { createTranslator, formatTranslatorError } from "@lite-translator/core";
+  import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+  const src = document.getElementById("liveSrc");
+  const out = document.getElementById("liveOut");
+  const partial = document.getElementById("livePartial");
+
+  const translator = await createTranslator({
+    from: "de",
+    to: "en",
+    engines: [createOnnxEngine()],
+  });
+
+  const live = translator.createLiveSession({ debounce: 250 });
+  live.on("translation", (e) => {
+    out.value = e.text;       // full translation (cached sentences + partial)
+    partial.value = e.partial; // still-growing tail
+  });
+  live.on("error", (err) => {
+    out.value = formatTranslatorError(err);
+  });
+
+  // Feed every keystroke; the session debounces internally.
+  src.addEventListener("input", () => live.update(src.value));
+</script>
+```
+
+- Completed sentences stay stable (cached); only the active fragment updates.
+- Call `live.clear()` when a new message or speech turn begins.
+- Call `live.dispose()` (e.g. before `translator.dispose()`) to cancel pending work.
+
+## Multi-language (switching target languages)
+
+Each `Translator` instance is bound to exactly one language pair (`from`/`to`).
+To let the user switch languages at runtime, keep a `Map` of translators keyed
+by pair and reuse the one that is already created.
+
+```html
+<label>Source: <select id="srcLang">
+  <option value="de">Deutsch</option>
+  <option value="en">English</option>
+  <option value="fr">Français</option>
+</select></label>
+<label>Target: <select id="tgtLang">
+  <option value="en">English</option>
+  <option value="de">Deutsch</option>
+  <option value="fr">Français</option>
+</select></label>
+<textarea id="src" rows="4">Hallo Welt</textarea>
+<button id="run">Translate</button>
+<output id="out" aria-live="polite"></output>
+
+<script type="module">
+  import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
+  import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+  const srcLang = document.getElementById("srcLang") as HTMLSelectElement;
+  const tgtLang = document.getElementById("tgtLang") as HTMLSelectElement;
+  const src = document.getElementById("src") as HTMLTextAreaElement;
+  const out = document.getElementById("out");
+  const run = document.getElementById("run");
+
+  const pool = new TranslatorPool({
+    engines: [createOnnxEngine()],
+    maxSize: 3, // dispose oldest translator beyond this limit
+  });
+
+  run.addEventListener("click", async () => {
+    out.value = "Translating…";
+    try {
+      const translator = await pool.switchTo(srcLang.value, tgtLang.value);
+      const result = await translator.translate(src.value);
+      out.value = result.text;
+    } catch (err) {
+      out.value = formatTranslatorError(err);
+    }
+  });
+</script>
+```
+
+- Unsupported pairs throw `LANGUAGE_PAIR_NOT_SUPPORTED` immediately — show a
+  friendly message. See [language-selection.md](language-selection.md) for the
+  full list of built-in pairs and how to register custom ones.
+- The engine is created once and shared across all translators via
+  `TranslatorPool`; switching back to a previous pair reuses the cached model
+  instantly.
+- Dispose translators you no longer need with `await pool.dispose()`
+  (the engine worker is shared and terminates when the last translator is
+  disposed — or you keep the engine alive for the whole app lifetime).
 
 ## Notes
 

@@ -44,8 +44,11 @@ export interface TranslatorOptions {
   engines?: TranslationEngine[];
 }
 
-/** Options for a single translate() call. */
-export type TranslateOptions = Record<string, never>;
+/** Options for a single translate() / translateBatch() / translateAll() call. */
+export interface TranslateOptions {
+  /** AbortSignal to cancel the translation. When already aborted, the call rejects with TRANSLATION_FAILED. */
+  signal?: AbortSignal;
+}
 
 /**
  * A single segment produced by the live session's segmentation step.

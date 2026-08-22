@@ -15,6 +15,18 @@ export class TranslationStore {
   readonly #originals = new Map<string, string>();
   /** Reactive listeners, notified on register() and set(). */
   readonly #listeners = new Set<() => void>();
+  /** Dirty flag: when true, snapshot() must rebuild the cached snapshot. */
+  #dirty = true;
+  /** Cached snapshot, frozen to prevent external mutation. Rebuilt on change. */
+  #cachedSnapshot: Record<string, string> = Object.freeze({});
+
+  /**
+   * Marks the store dirty (next snapshot() rebuilds) and notifies subscribers.
+   */
+  #markDirty(): void {
+    this.#dirty = true;
+    this.#notify();
+  }
 
   /**
    * Registers a key with its original text. If the key already exists, the
@@ -24,7 +36,7 @@ export class TranslationStore {
   register(key: string, text: string): string {
     this.#entries.set(key, text);
     this.#originals.set(key, text);
-    this.#notify();
+    this.#markDirty();
     return text;
   }
 
@@ -43,7 +55,7 @@ export class TranslationStore {
    */
   set(key: string, translated: string): void {
     this.#entries.set(key, translated);
-    this.#notify();
+    this.#markDirty();
   }
 
   /** Original text for a key (never changes after register). */
@@ -86,16 +98,25 @@ export class TranslationStore {
    * Returns a plain snapshot `{ key: value }` of the current store state.
    * Useful for frameworks that need a value comparison (e.g. React
    * `useSyncExternalStore`).
+   *
+   * The snapshot is cached and frozen: repeated calls without an intervening
+   * `register()` / `set()` / `clear()` return the **same reference**, so
+   * frameworks can compare with `===` instead of shallow-equal. The object is
+   * frozen to prevent external mutation of the shared reference.
    */
   snapshot(): Record<string, string> {
-    return Object.fromEntries(this.#entries);
+    if (this.#dirty) {
+      this.#cachedSnapshot = Object.freeze(Object.fromEntries(this.#entries));
+      this.#dirty = false;
+    }
+    return this.#cachedSnapshot;
   }
 
   /** Removes all registered keys. */
   clear(): void {
     this.#entries.clear();
     this.#originals.clear();
-    this.#notify();
+    this.#markDirty();
   }
 
   #notify(): void {

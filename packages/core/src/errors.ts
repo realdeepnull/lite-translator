@@ -27,3 +27,19 @@ export class TranslatorError extends Error {
 export function isTranslatorError(error: unknown): error is TranslatorError {
   return error instanceof TranslatorError;
 }
+
+/**
+ * Formats any error into a consistent, human-readable string.
+ *
+ * `TranslatorError` instances produce `"Fehler: <code>: <message>"`;
+ * all other values produce `"Fehler: <message>"` (falling back to
+ * `String(err)` when no `.message` is available). Replaces the duplicated
+ * `formatError()` helpers and inline `isTranslatorError` checks found across
+ * framework integrations.
+ */
+export function formatTranslatorError(err: unknown): string {
+  if (isTranslatorError(err)) {
+    return `Fehler: ${err.code}: ${err.message}`;
+  }
+  return `Fehler: ${(err as { message?: string })?.message ?? String(err)}`;
+}

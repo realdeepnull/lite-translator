@@ -54,6 +54,7 @@ export class Translator {
   /** Translates text. Loads the model when needed. */
   async translate(text: string, options?: TranslateOptions): Promise<TranslationResult> {
     this.#assertNotDisposed();
+    this.#assertNotAborted(options);
     if (!this.#ready) {
       await this.preload();
     }
@@ -76,6 +77,7 @@ export class Translator {
    */
   async translateBatch(texts: string[], options?: TranslateOptions): Promise<TranslationResult[]> {
     this.#assertNotDisposed();
+    this.#assertNotAborted(options);
     if (!this.#ready) {
       await this.preload();
     }
@@ -137,6 +139,7 @@ export class Translator {
    */
   async translateAll(options?: TranslateOptions): Promise<void> {
     this.#assertNotDisposed();
+    this.#assertNotAborted(options);
     if (!this.#store || this.#store.size === 0) {
       return;
     }
@@ -212,6 +215,12 @@ export class Translator {
   #assertNotDisposed(): void {
     if (this.#disposed) {
       throw new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Translator has been disposed");
+    }
+  }
+
+  #assertNotAborted(options?: TranslateOptions): void {
+    if (options?.signal?.aborted) {
+      throw new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Translation aborted");
     }
   }
 }

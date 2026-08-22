@@ -387,3 +387,82 @@ describe("errors", () => {
     expect(isTranslatorError(new Error("x"))).toBe(false);
   });
 });
+
+describe("Translator AbortSignal (F6)", () => {
+  it("translate wirft TRANSLATION_FAILED bei bereits abgebrochenem Signal", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      translator.translate("Hallo", { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.TRANSLATION_FAILED });
+    // Engine sollte nicht aufgerufen worden sein
+    expect(engine.translate).not.toHaveBeenCalled();
+  });
+
+  it("translateBatch wirft TRANSLATION_FAILED bei bereits abgebrochenem Signal", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      translator.translateBatch(["a", "b"], { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.TRANSLATION_FAILED });
+    expect(engine.translateBatch).not.toHaveBeenCalled();
+  });
+
+  it("translateAll wirft TRANSLATION_FAILED bei bereits abgebrochenem Signal", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("title", "Hallo");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      translator.translateAll({ signal: controller.signal }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.TRANSLATION_FAILED });
+    expect(engine.translateBatch).not.toHaveBeenCalled();
+  });
+
+  it("translate ohne Signal funktioniert wie bisher", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const result = await translator.translate("Hallo");
+    expect(result.text).toBe("[en] Hallo");
+  });
+
+  it("translate mit nicht-abgebrochenem Signal funktioniert", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const controller = new AbortController();
+    const result = await translator.translate("Hallo", { signal: controller.signal });
+    expect(result.text).toBe("[en] Hallo");
+  });
+
+  it("translate wirft bei Mid-Flight-Abort, wenn die Engine das Signal auswertet", async () => {
+    // Mock-Engine, die das Signal auswertet und bei Abort rejectet.
+    // Der Abort passiert während des preload()-Microtasks, sodass das Signal
+    // bereits abgebrochen ist, wenn engine.translate() aufgerufen wird.
+    const controller = new AbortController();
+    const engine: TranslationEngine = {
+      ...createMockEngine(),
+      translate: vi.fn(
+        (_text: string, _pair: LanguagePair, options?: { signal?: AbortSignal }): Promise<TranslationResult> => {
+          if (options?.signal?.aborted) {
+            return Promise.reject(
+              new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Translation aborted"),
+            );
+          }
+          return new Promise<TranslationResult>(() => {
+            // Never resolves; only rejects on abort (but signal is already aborted above).
+          });
+        },
+      ),
+    };
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const promise = translator.translate("Hallo", { signal: controller.signal });
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ code: ERROR_CODES.TRANSLATION_FAILED });
+  });
+});

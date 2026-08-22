@@ -296,7 +296,81 @@ See [docs/live-translation.md](live-translation.md).
 
 ---
 
-### Step 14 — Release v0.1
+### Step 14 — Framework-Level Optimizations
+
+**Status:** ✅ Done
+
+Optimizations identified during the analysis of framework integration patterns
+(Angular, React, Vue). These are library-level changes that simplify all
+framework bindings, enforce DRY, and fix recurring workarounds — applied
+before the first release so the public API ships in its final shape.
+
+Non-breaking, additive changes (parallel, no inter-dependencies):
+
+- **Store-Snapshot Caching** (`packages/core/src/store.ts`): `snapshot()`
+  returns a cached reference when the store has not changed, instead of
+  allocating a new object on every call. A dirty-flag (`#dirty`) rebuilds the
+  snapshot only after `register()` / `set()` / `clear()`. Frameworks no longer
+  need shallow-equal workarounds (React `useSyncExternalStore`), key-by-key
+  diffs (Vue), or `untracked()` wrappers (Angular signals). The cached snapshot
+  is frozen to prevent external mutation of the shared reference.
+
+- **TranslatorPool** (new `packages/core/src/pool.ts`): a reusable
+  `TranslatorPool` with `switchTo(from, to)`, LRU eviction (`maxSize`),
+  `disposePair()`, and `dispose()`. Replaces the ad-hoc `Map<string, Translator>`
+  - `switchTo()` pattern reimplemented in every demo. Accepts optional
+    `engines` / `onProgress`; falls back to `getDefaultEngines()` when omitted.
+
+- **formatTranslatorError** (`packages/core/src/errors.ts`): a single
+  utility that formats `TranslatorError` and arbitrary errors into a
+  consistent string. Replaces the duplicated `formatError()` / inline
+  `isTranslatorError` checks across all demos.
+
+Breaking change (scoped, additive at the TS level):
+
+- **AbortSignal** (`types.ts`, `translator.ts`, `engine.ts`,
+  `engine-onnx/transformers-engine.ts`): `TranslateOptions` gains an optional
+  `signal?: AbortSignal`. `translate()`, `translateBatch()`, and
+  `translateAll()` reject with `TRANSLATION_FAILED` ("Translation aborted")
+  when the signal is already aborted, and the ONNX engine wires the signal to
+  reject pending worker requests (the orphaned worker result is silently
+  dropped). Custom engines that ignore `options` remain compatible — the
+  `TranslationEngine` interface already accepts `options?: TranslateOptions`,
+  so no signature change is needed.
+
+---
+
+### Step 15 — Multi-Model Worker
+
+**Status:** ⬜ Open
+
+The worker currently holds one model at a time (`activeModelId` lock in
+`packages/engine-onnx/src/worker.ts`). Switching language pairs requires
+disposing the current model and loading the new one — even if the user
+switches back later. Multi-model support with LRU eviction enables instant
+language-pair switching without model reloads and one worker for all pairs.
+
+This is a larger architecture change, deferred from Step 14 to a separate
+step/PR after the first release.
+
+Planned:
+
+- **Multi-model Map**: the worker holds a `Map<modelId, ModelEntry>` instead of
+  a single `pipe` / `activeModelId`. `handleLoad()` returns immediately for an
+  already-loaded model without disposing others.
+- **LRU eviction**: optional `maxModels` (e.g. 3) to bound memory — the oldest
+  cached model is disposed when the limit is exceeded.
+- **`TransformersEngine` updates**: track loaded models per pair instead of a
+  global `#loadedPair`; `load()` for an already-cached pair is instant.
+- **Instant switching**: no model reload when revisiting a previously loaded
+  pair — the worker simply selects the cached pipeline.
+- **One worker for all pairs**: eliminates the need for one worker per
+  language pair (currently worked around by `TranslatorPool` creating separate
+  translators, each with its own engine instance).
+
+---
+
+### Step 16 — Release v0.1
 
 **Status:** ✅ Done
 
@@ -315,7 +389,7 @@ Done:
 
 ---
 
-### Step 15 — Developer Experience (v0.2)
+### Step 17 — Developer Experience (v0.2)
 
 **Status:** 🟡 Partial
 
@@ -325,6 +399,7 @@ Done:
 
 - integration examples for Vanilla JS, React, Vue and Angular
 - live sessions (`createLiveSession()`, Step 13)
+- `AbortSignal` support (Step 14)
 
 Missing:
 
@@ -332,12 +407,11 @@ Missing:
 - `capabilities()`
 - cache management
 - performance metrics
-- `AbortSignal`
 - Svelte example
 
 ---
 
-### Step 16 — Evaluate Smart Path (v0.3)
+### Step 18 — Evaluate Smart Path (v0.3)
 
 **Status:** ⬜ Open
 
@@ -350,7 +424,7 @@ An optional Smart Path as a separate local engine.
 
 ---
 
-### Step 17 — Release 1.0
+### Step 19 — Release 1.0
 
 **Status:** ⬜ Open
 

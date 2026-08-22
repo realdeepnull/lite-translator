@@ -16,12 +16,22 @@ Angular applications should resolve dependencies via DI (Dependency Injection). 
 
 ```ts
 // src/app/translation.service.ts
-import { Injectable, inject, signal } from "@angular/core";
-import { createTranslator, type ProgressEvent, type Translator } from "@lite-translator/core";
+import { Injectable, signal } from "@angular/core";
+import {
+  createTranslator,
+  formatTranslatorError,
+  type ProgressEvent,
+  type Translator,
+} from "@lite-translator/core";
 import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
 @Injectable({ providedIn: "root" })
 export class TranslationService {
+  // Engine einmal erstellen und als Klassenfeld halten — ein Worker für
+  // alle Translatoren, nicht einer pro Sprachpaar (F3: Engine-Sharing).
+  // Siehe Abschnitt "Engine-Sharing Best Practice" unten.
+  private readonly engine = createOnnxEngine();
+
   private translator: Translator | null = null;
 
   /** Progress signal for the UI (0..1) */
@@ -32,7 +42,7 @@ export class TranslationService {
     this.translator = await createTranslator({
       from: "de",
       to: "en",
-      engines: [createOnnxEngine()],
+      engines: [this.engine],
       onProgress: (e: ProgressEvent) => {
         if (Number.isFinite(e.progress)) this.progress.set(e.progress);
       },
@@ -51,11 +61,71 @@ export class TranslationService {
 }
 ```
 
+## Engine-Sharing Best Practice (F3)
+
+Each `createOnnxEngine()` call starts a new Web Worker (`new Worker(...)`) on
+the first `load()`. Creating the engine **inside** `create()` (or worse, inside
+`switchTo()`) means every language pair spawns its own worker — costing
+~30–50 MB of memory per extra pair (ONNX runtime + model). This is the **F3
+Engine-Sharing** pitfall identified during the framework analysis.
+
+The fix is purely a consumer-side best practice — the library already
+supports shared engines, it just needs to be used correctly. There are two
+equivalent approaches:
+
+### Option A: Shared engine field (recommended, used above)
+
+Create the engine once as a class field and pass it to every
+`createTranslator()` call:
+
+```ts
+private readonly engine = createOnnxEngine();
+
+async create(): Promise<Translator> {
+  this.translator = await createTranslator({
+    from: "de",
+    to: "en",
+    engines: [this.engine],  // ← shared, not a new worker
+  });
+  return this.translator;
+}
+```
+
+This is the approach used in Step 1 and in the multi-language `TranslatorPool`
+section below.
+
+### Option B: Global default engine
+
+Register the engine globally once at app startup. `createTranslator()` calls
+without an `engines` option automatically use the registered default:
+
+```ts
+// main.ts or app.config.ts
+import { registerDefaultEngine } from "@lite-translator/core";
+import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+registerDefaultEngine(createOnnxEngine());
+
+// Anywhere — no `engines` needed:
+const t = await createTranslator({ from: "de", to: "en" });
+```
+
+> **Rule of thumb:** call `createOnnxEngine()` **exactly once** per app
+> lifetime. Pass the resulting instance to every `createTranslator()` (or to
+> `TranslatorPool`) — or register it globally with `registerDefaultEngine()`.
+
+| Pattern                                               | Workers          | Memory | Correct? |
+| ----------------------------------------------------- | ---------------- | ------ | -------- |
+| `engines: [createOnnxEngine()]` per `switchTo()` call | N (one per pair) | high   | ❌       |
+| Shared engine field (Option A)                        | 1                | low    | ✅       |
+| `registerDefaultEngine()` (Option B)                  | 1                | low    | ✅       |
+
 ## Step 2: Standalone component
 
 ```ts
 // src/app/translator-example.component.ts
 import { Component, OnDestroy, inject, signal } from "@angular/core";
+import { formatTranslatorError } from "@lite-translator/core";
 import { TranslationService } from "./translation.service";
 
 @Component({
@@ -93,7 +163,7 @@ export class TranslatorExampleComponent implements OnDestroy {
       const result = await translator.translate(this.input());
       this.output.set(result.text);
     } catch (err) {
-      this.output.set(`Error: ${(err as { code?: string }).code ?? "UNKNOWN"}`);
+      this.output.set(formatTranslatorError(err));
     } finally {
       this.loading.set(false);
     }
@@ -105,6 +175,11 @@ export class TranslatorExampleComponent implements OnDestroy {
   }
 }
 ```
+
+> **AbortSignal:** `translate()` accepts an optional `AbortSignal` via
+> `{ signal }`. When the signal is already aborted, the call rejects with
+> `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
+> translations when the user switches language mid-flight.
 
 ## Step 3: Register in the router or standalone bootstrap
 
@@ -199,6 +274,11 @@ The modern, esbuild-based Angular builder does not automatically detect and emit
 "assets": [
   {
     "glob": "worker.js",
+    "input": "node_modules/@lite-translator/engine-onnx/dist",
+    "output": "."
+  },
+  {
+    "glob": "worker.js.map",
     "input": "node_modules/@lite-translator/engine-onnx/dist",
     "output": "."
   },
@@ -313,8 +393,8 @@ registration and reading; the service wires the reactivity.
 
 ```ts
 // src/app/translation.service.ts (additions)
-import { effect, signal, untracked } from "@angular/core";
-import { createTranslator, type Translator } from "@lite-translator/core";
+import { signal } from "@angular/core";
+import { type Translator } from "@lite-translator/core";
 
 @Injectable({ providedIn: "root" })
 export class TranslationService {
@@ -326,15 +406,16 @@ export class TranslationService {
 
   /**
    * Returns the bound t(key, text?) function. The first call creates the
-   * internal store; a shared effect keeps `translations()` in sync.
+   * internal store; the subscribe callback keeps `translations()` in sync.
+   * Since `snapshot()` returns a cached frozen reference (F1), no
+   * `untracked()` wrapper is needed.
    */
   t(): (key: string, text?: string) => string {
     if (!this.tFn) {
       this.tFn = this.translator!.t();
       const store = this.translator!.store()!;
       store.subscribe(() => {
-        // untracked: snapshot is read imperatively, not in the effect graph
-        this.translations.set(untracked(() => store.snapshot()));
+        this.translations.set(store.snapshot());
       });
     }
     return this.tFn;
@@ -441,6 +522,230 @@ export class ToolbarComponent {
 > **Deduplication:** If multiple components register the same value (e.g.
 > "Abbrechen" appears twice), core sends it to the engine only once.
 
+## Live translation (while typing)
+
+`translator.createLiveSession({ debounce })` translates **while the user
+types** — ideal for chat messages or speech-to-text. The session segments the
+input at sentence boundaries, caches translations of completed sentences, and
+only re-translates the still-growing tail on each `update()`. Outdated results
+are discarded automatically.
+
+See [live-translation.md](live-translation.md) for the full concept. This is the
+Angular 22 (Signals) binding.
+
+### Step 1: Service — expose a live session factory
+
+Add a thin factory to `TranslationService`. It uses the currently selected
+translator (set via `create()` in Step 1 or `switchTo()` in the multi-language
+section below):
+
+```ts
+// src/app/translation.service.ts (additions)
+import { type LiveSession } from "@lite-translator/core";
+
+createLiveSession(options?: { debounce?: number }): LiveSession {
+  return this.translator!.createLiveSession(options);
+}
+```
+
+### Step 2: Component — wire the session to a signal
+
+```ts
+// src/app/live-translator.component.ts
+import { Component, OnDestroy, inject, signal } from "@angular/core";
+import { TranslationService } from "./translation.service";
+import type { LiveSession, LiveTranslationEvent } from "@lite-translator/core";
+
+@Component({
+  selector: "app-live-translator",
+  standalone: true,
+  template: `
+    <div style="max-width: 480px; display: grid; gap: 12px">
+      <textarea [value]="input()" (input)="onInput($any($event.target).value)" rows="4"></textarea>
+      <output style="white-space: pre-wrap">{{ text() }}</output>
+      <output style="opacity: 0.6">{{ partial() }}</output>
+    </div>
+  `,
+})
+export class LiveTranslatorComponent implements OnDestroy {
+  private readonly translation = inject(TranslationService);
+  private session: LiveSession | null = null;
+
+  protected readonly input = signal("Hallo Welt. Wie geht es dir?");
+  protected readonly text = signal("");
+  protected readonly partial = signal("");
+
+  constructor() {
+    void this.translation.create().then((translator) => {
+      this.session = translator.createLiveSession({ debounce: 250 });
+      this.session.on("translation", (e: LiveTranslationEvent) => {
+        this.text.set(e.text);
+        this.partial.set(e.partial);
+      });
+    });
+  }
+
+  protected onInput(value: string): void {
+    this.input.set(value);
+    this.session?.update(value);
+  }
+
+  ngOnDestroy(): void {
+    // Cancels pending debounced work; the translator itself stays alive.
+    this.session?.dispose();
+    this.session = null;
+  }
+}
+```
+
+- Completed sentences stay stable (cached); only the active fragment updates.
+- `ngOnDestroy` disposes the session — canceling pending debounced work. The
+  translator itself is app-global (`providedIn: "root"`) and stays alive.
+- For speech-to-text, feed `live.update(text)` from the recognizer's `onresult`
+  handler and render `e.segments` filtered by `complete` for the stable area.
+
+## Multi-language (switching target languages)
+
+Each `Translator` instance is bound to exactly one language pair (`from`/`to`).
+To let the user switch languages at runtime, the service uses `TranslatorPool`
+which caches translators by pair and reuses the one already created. An
+optional `maxSize` enables LRU eviction of the oldest cached translator.
+
+### Step 1: Service — use TranslatorPool
+
+Extend `TranslationService` (from Step 1) with a `TranslatorPool`. The full file
+becomes:
+
+```ts
+// src/app/translation.service.ts
+import { Injectable, signal } from "@angular/core";
+import {
+  TranslatorPool,
+  formatTranslatorError,
+  type ProgressEvent,
+  type Translator,
+} from "@lite-translator/core";
+import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+@Injectable({ providedIn: "root" })
+export class TranslationService {
+  private readonly engine = createOnnxEngine();
+  private readonly pool = new TranslatorPool({
+    engines: [this.engine],
+    maxSize: 3, // dispose oldest translator beyond this limit
+  });
+
+  /** Current target pair as a reactive signal (e.g. "de-en"). */
+  readonly pair = signal<string | null>(null);
+
+  /** Progress signal for the UI (0..1) */
+  readonly progress = signal(0);
+
+  /**
+   * Switches (or creates) the translator for the given pair. Reuses a cached
+   * instance so the model stays loaded and the switch is instant.
+   */
+  async switchTo(from: string, to: string): Promise<Translator> {
+    const translator = await this.pool.switchTo(from, to);
+    this.pair.set(`${from}-${to}`);
+    return translator;
+  }
+
+  async isCached(): Promise<boolean> {
+    const current = this.pool.current();
+    return current ? current.isCached() : false;
+  }
+
+  /** Disposes a single cached translator (e.g. to free memory). */
+  async disposePair(from: string, to: string): Promise<void> {
+    await this.pool.disposePair(from, to);
+  }
+
+  async dispose(): Promise<void> {
+    await this.pool.dispose();
+    this.pair.set(null);
+  }
+}
+```
+
+### Step 2: Component — let the user pick a pair
+
+```ts
+// src/app/multi-language-translator.component.ts
+import { Component, inject, signal } from "@angular/core";
+import { formatTranslatorError } from "@lite-translator/core";
+import { TranslationService } from "./translation.service";
+
+@Component({
+  selector: "app-multi-language-translator",
+  standalone: true,
+  template: `
+    <div style="max-width: 480px; display: grid; gap: 12px">
+      <div style="display: flex; gap: 12px">
+        <label>
+          From:
+          <select [value]="from()" (change)="from.set($any($event.target).value)">
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+          </select>
+        </label>
+        <label>
+          To:
+          <select [value]="to()" (change)="to.set($any($event.target).value)">
+            <option value="en">English</option>
+            <option value="de">Deutsch</option>
+            <option value="fr">Français</option>
+          </select>
+        </label>
+      </div>
+      <textarea
+        [value]="input()"
+        (input)="input.set($any($event.target).value)"
+        rows="4"
+      ></textarea>
+      <button [disabled]="loading()" (click)="handleTranslate()">
+        {{ loading() ? "Translating…" : "Translate" }}
+      </button>
+      <output style="white-space: pre-wrap">{{ output() }}</output>
+    </div>
+  `,
+})
+export class MultiLanguageTranslatorComponent {
+  private readonly translation = inject(TranslationService);
+
+  protected readonly from = signal("de");
+  protected readonly to = signal("en");
+  protected readonly input = signal("Hallo Welt");
+  protected readonly output = signal("");
+  protected readonly loading = signal(false);
+
+  protected async handleTranslate(): Promise<void> {
+    this.loading.set(true);
+    this.output.set("");
+    try {
+      const translator = await this.translation.switchTo(this.from(), this.to());
+      const result = await translator.translate(this.input());
+      this.output.set(result.text);
+    } catch (err) {
+      this.output.set(formatTranslatorError(err));
+    } finally {
+      this.loading.set(false);
+    }
+  }
+}
+```
+
+- Unsupported pairs throw `LANGUAGE_PAIR_NOT_SUPPORTED` immediately — show a
+  friendly message. See [language-selection.md](language-selection.md) for the
+  full list of built-in pairs and how to register custom ones.
+- The engine is created once and shared across all translators via
+  `TranslatorPool`; switching back to a previous pair reuses the cached model
+  instantly.
+- Dispose translators you no longer need via `translation.disposePair(from, to)`
+  (e.g. on app logout). The engine worker terminates when the last translator
+  is disposed — or keep the engine alive for the whole app lifetime.
+
 ## Notes
 
 - **Lazy loading:** `createTranslator()` does not load a model yet. Only `translate()` or `preload()` loads the model from the Hugging Face Hub.
@@ -448,5 +753,5 @@ export class ToolbarComponent {
 - **Cleanup:** `ngOnDestroy` calls `dispose()` so the web worker is terminated when the component is destroyed; otherwise it keeps running. Alternatively, the service can remain `providedIn: "root"` and be disposed when the app ends if the translator is app-global.
 - **Offline:** After the first download, translation works without network access. Use `await translator.isCached()` to check whether the model is already stored locally.
 - **Web Worker + Angular build (Vite/esbuild):** The library ships the worker as a self-contained bundle (`dist/worker.js`), and `@huggingface/transformers` is already inlined — this is the **library requirement**. In addition, the consumer must add the package to `angular.json` under `optimizeDeps.exclude` so Vite does not prebundle the worker itself (see **Step 4**). Only both fixes together make the worker work in the dev server.
-- **Error codes:** See [packages/core/src/errors.ts](../packages/core/src/errors.ts); for example, catch `OFFLINE_MODEL_MISSING` to show users a missing offline cache warning.
+- **Error codes:** See [packages/core/src/errors.ts](../packages/core/src/errors.ts); use `formatTranslatorError()` for consistent error strings. For example, catch `OFFLINE_MODEL_MISSING` to show users a missing offline cache warning.
 - **Testing:** Because the translator is encapsulated in the service, you can replace it in tests with a mock `Translator` (for example, via `TestBed.overrideProvider`).

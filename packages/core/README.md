@@ -84,21 +84,33 @@ See [live translation](../../docs/live-translation.md) for the full guide.
 
 - `createTranslator(options)` — creates a translator (no model download on import)
 - `translator.preload()` — explicitly preloads the model
-- `translator.translate(text)` — translates text (lazy-loads the model)
-- `translator.translateBatch(texts)` — translates multiple texts in one call
-  (batched by the engine; result order matches input order)
+- `translator.translate(text, options?)` — translates text (lazy-loads the model);
+  `options.signal` accepts an `AbortSignal` to cancel the translation
+- `translator.translateBatch(texts, options?)` — translates multiple texts in one call
+  (batched by the engine; result order matches input order; `options.signal` for cancellation)
 - `translator.t()` — returns a bound `t(key, text?)` function for i18n-style
   registration and reading of UI strings
-- `translator.translateAll()` — translates all strings registered via `t()`
+- `translator.translateAll(options?)` — translates all strings registered via `t()`
   in one `translateBatch()` call; updates the store and notifies subscribers
+  (`options.signal` for cancellation)
 - `translator.createLiveSession(options?)` — creates a `LiveSession` for
   incremental live translation (chat / speech-to-text); segments input,
   caches completed sentences, discards outdated results
 - `translator.store()` — the reactive `TranslationStore` backing `t()` (created
-  lazily on first `t()` call; `undefined` before that)
+  lazily on first `t()` call; `undefined` before that). `snapshot()` returns a
+  cached, frozen reference so frameworks can compare with `===` (no shallow-equal
+  workaround needed)
 - `translator.isReady()` — model loaded and ready
 - `translator.isCached()` — model present in local cache (offline-capable)
 - `translator.dispose()` — frees resources
+- `TranslatorPool` — manages multiple translators by language pair with
+  LRU eviction (`maxSize`); `switchTo(from, to)` returns a cached translator
+  instantly when available
+- `formatTranslatorError(err)` — formats any error (`TranslatorError` or
+  arbitrary) into a consistent human-readable string
+- `isTranslatorError(err)` — type guard for `TranslatorError`
+- `withBatchFallback(engine)` — wraps an engine without `translateBatch` with a
+  sequential fallback
 
 ### Custom engines
 

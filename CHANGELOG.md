@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **TranslatorPool** (`@lite-translator/core`): reusable pool that caches
+  translators by language pair. `switchTo(from, to)` returns a cached
+  translator instantly when available; optional `maxSize` enables LRU
+  eviction of the oldest cached translator. `disposePair(from, to)` and
+  `dispose()` for selective and full cleanup. Accepts optional `engines` /
+  `onProgress`; falls back to `getDefaultEngines()` when omitted. Replaces
+  the ad-hoc `Map<string, Translator>` + `switchTo()` pattern reimplemented in
+  every framework integration.
+- **formatTranslatorError()** (`@lite-translator/core`): consistent error
+  formatting utility. `TranslatorError` instances produce
+  `"Fehler: <code>: <message>"`; arbitrary errors fall back to
+  `"Fehler: <message>"` (or `String(err)` when no `.message`). Replaces the
+  duplicated `formatError()` helpers and inline `isTranslatorError` checks
+  across all framework integrations.
+- **AbortSignal support** for `translate()`, `translateBatch()`, and
+  `translateAll()`: `TranslateOptions` now accepts an optional
+  `signal?: AbortSignal`. When already aborted, the call rejects with
+  `TRANSLATION_FAILED` ("Translation aborted"). The ONNX engine wires the
+  signal to reject pending worker requests — the orphaned worker result is
+  silently dropped. Custom engines that ignore `options` remain compatible.
 - **Live translation:** `translator.createLiveSession({ debounce })` returns a `LiveSession` that translates incrementally as the user types (chat) or as speech-to-text streams words in. Input is segmented at sentence boundaries; completed sentences are cached and only the still-growing tail is re-translated on each `update()`. Outdated results are discarded by a monotonic sequence number; identical consecutive inputs skip inference. Event-based: `live.on("translation", (e) => …)` with `LiveTranslationEvent` (`text`, `source`, `partial`, `segments`). See [docs/live-translation.md](docs/live-translation.md).
 - New `createEmitter()` typed event emitter (framework-neutral, platform-neutral).
 - `splitSegments()` exported for advanced/manual segmentation.
@@ -35,6 +55,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Store-Snapshot Caching:** `TranslationStore.snapshot()` now returns a
+  cached, frozen `Record<string, string>` reference when the store has not
+  changed, instead of allocating a new object on every call. A dirty-flag
+  rebuilds the snapshot only after `register()` / `set()` / `clear()`. This
+  allows frameworks to compare with `===` instead of shallow-equal
+  workarounds (React `useSyncExternalStore`), key-by-key diffs (Vue), or
+  `untracked()` wrappers (Angular signals). No breaking change —
+  `snapshot()` still returns `Record<string, string>`.
+- **TranslateOptions** changed from `Record<string, never>` (type alias) to
+  an interface with `signal?: AbortSignal`. This is additive at the
+  TypeScript level (optional property on an optional parameter); custom
+  engines that accept `options?: TranslateOptions` remain compatible.
 - `@lite-translator/engine-onnx`: upgraded `@huggingface/transformers` to
   `^4.2.0`, models switched to `onnx-community/opus-mt-*`, default `wasm`+`bnb4`
   (MatMulNBits workaround).

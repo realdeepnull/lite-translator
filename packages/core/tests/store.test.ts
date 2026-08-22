@@ -73,15 +73,54 @@ describe("TranslationStore", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it("snapshot liefert eine flache Kopie der Werte", () => {
+  it("snapshot liefert eine flache Kopie der Werte und ist eingefroren", () => {
     const store = new TranslationStore();
     store.register("a", "1");
     store.register("b", "2");
     const snap = store.snapshot();
     expect(snap).toEqual({ a: "1", b: "2" });
-    // Mutation des Snapshots darf den Store nicht beeinflussen
-    snap.a = "changed";
+    // Der Snapshot ist eingefroren – Mutationen werfen (strict mode) oder tun nichts
+    expect(Object.isFrozen(snap)).toBe(true);
+    // Der Store bleibt unbeeinflusst
     expect(store.get("a")).toBe("1");
+  });
+
+  it("snapshot liefert bei unverändertem Zustand dieselbe Referenz (F1)", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    const snap1 = store.snapshot();
+    const snap2 = store.snapshot();
+    expect(snap2).toBe(snap1); // gleiche Referenz, kein neues Objekt
+  });
+
+  it("snapshot liefert nach register/set/clear eine neue Referenz (F1)", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    const snap1 = store.snapshot();
+
+    store.register("b", "2");
+    const snap2 = store.snapshot();
+    expect(snap2).not.toBe(snap1);
+    expect(snap2).toEqual({ a: "1", b: "2" });
+
+    store.set("a", "x");
+    const snap3 = store.snapshot();
+    expect(snap3).not.toBe(snap2);
+    expect(snap3).toEqual({ a: "x", b: "2" });
+
+    store.clear();
+    const snap4 = store.snapshot();
+    expect(snap4).not.toBe(snap3);
+    expect(snap4).toEqual({});
+  });
+
+  it("snapshot nach clear ist eingefroren und leer", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    store.clear();
+    const snap = store.snapshot();
+    expect(snap).toEqual({});
+    expect(Object.isFrozen(snap)).toBe(true);
   });
 
   it("clear entfernt alle Keys und benachrichtigt Subscriber", () => {

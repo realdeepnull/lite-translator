@@ -90,19 +90,21 @@ scoped to the translator instance (one store per language pair).
 | `original(key)` | Returns the original text (never changes after `register`). |
 | `entries()` | Iterator over all `[key, value]` pairs (insertion order). |
 | `subscribe(listener)` | Registers a change listener, returns an unsubscribe function. |
-| `snapshot()` | Returns a plain `Record<string, string>` snapshot — for frameworks that compare by value. |
+| `snapshot()` | Returns a plain `Record<string, string>` snapshot — cached and frozen: repeated calls without an intervening `register()` / `set()` / `clear()` return the **same reference**, so frameworks can compare with `===` instead of shallow-equal. |
 | `clear()` | Removes all keys (optional, e.g. on language switch). |
 | `size` | Number of registered keys. |
 
 ### Reactive binding per framework
 
 Core provides only `subscribe()` + `snapshot()`. Each framework binds this to
-its own reactivity primitive:
+its own reactivity primitive. Since `snapshot()` returns a cached, referentially
+stable object (frozen), frameworks can compare with `===` — no shallow-equal
+workarounds needed.
 
 | Framework | Binding |
 | --- | --- |
 | Angular | `signal()` mirroring `store.snapshot()`, updated in the `subscribe` callback |
-| React | `useSyncExternalStore(store.subscribe, store.snapshot)` |
+| React | `useSyncExternalStore(store.subscribe, store.snapshot)` — snapshot is stable, no shallow-equal needed |
 | Vue | `reactive()` snapshot, refreshed in the `subscribe` callback |
 | Vanilla JS | `store.subscribe()` → direct DOM updates |
 
@@ -142,15 +144,42 @@ frameworks re-render
 
 - **One store per translator.** `t()` is bound to the translator's language
   pair (`from`/`to`). Multiple language pairs require multiple translator
-  instances, each with its own store.
+  instances, each with its own store. Use `TranslatorPool` to manage multiple
+  pairs with LRU eviction (see below).
 - **Synchronous first render.** `t(key, text)` returns the original text
   immediately — no `await`, no loading state on first paint. The model loads
   only when `translateAll()` is called.
 - **Lazy model load.** `translateAll()` loads the model on first call (like
   `translate()` / `translateBatch()`). Subsequent calls reuse the loaded
   model.
+- **AbortSignal.** `translateAll()` accepts an optional `AbortSignal` via
+  `TranslateOptions`. When already aborted, it rejects with
+  `TRANSLATION_FAILED` ("Translation aborted").
 - **Disposal.** `translator.dispose()` clears the store and terminates the
   engine. After disposal, `t()` and `translateAll()` throw `TranslatorError`.
+
+### TranslatorPool (multi-language)
+
+When switching between multiple language pairs at runtime, use
+`TranslatorPool` instead of managing a `Map<string, Translator>` manually.
+`switchTo(from, to)` returns a cached translator instantly when available;
+an optional `maxSize` enables LRU eviction.
+
+```ts
+import { TranslatorPool } from "@lite-translator/core";
+import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+const pool = new TranslatorPool({
+  engines: [createOnnxEngine()],
+  maxSize: 3, // optional: dispose oldest translator beyond this limit
+});
+
+const t1 = await pool.switchTo("de", "en");
+const t2 = await pool.switchTo("en", "de");
+const t1Again = await pool.switchTo("de", "en"); // same instance as t1
+
+await pool.dispose(); // disposes all cached translators
+```
 
 ---
 
@@ -175,14 +204,16 @@ already have an array of strings.
 `translateAll()` wraps engine errors in `TranslatorError` with
 `ERROR_CODES.TRANSLATION_FAILED`, consistent with `translateBatch()`. Existing
 `TranslatorError` instances from the engine pass through unchanged (e.g.
-`OFFLINE_MODEL_MISSING`).
+`OFFLINE_MODEL_MISSING`). Use `formatTranslatorError()` for consistent
+human-readable error strings across all frameworks.
 
 ```ts
+import { formatTranslatorError } from "@lite-translator/core";
+
 try {
   await translator.translateAll();
 } catch (err) {
-  if (err.code === "OFFLINE_MODEL_MISSING") {
-    // inform user that the model is not cached and offline
-  }
+  console.error(formatTranslatorError(err));
+  // → "Fehler: OFFLINE_MODEL_MISSING: offline" or "Fehler: boom"
 }
 ```

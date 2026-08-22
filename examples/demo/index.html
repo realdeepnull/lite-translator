@@ -461,13 +461,15 @@
         Zuerst <code>npm run build</code> im Repo ausführen. Diese Seite lädt die lokalen
         <code>dist</code>-Bundles der Workspace-Pakete direkt (ohne separaten Bundler).
         Die erste Übersetzung lädt das quantisierte Modell vom Hugging Face Hub.
+        Sprachpaare werden via <code>TranslatorPool</code> gecacht — beim Wechsel zurück
+        zu einem bereits geladenen Paar ist die Übersetzung sofort verfügbar.
       </details>
 
       <footer>lite-translator — Datenschutzfreundlich, lokal, offlinefähig.</footer>
     </div>
 
     <script type="module">
-      import { createTranslator } from "../../packages/core/dist/index.js";
+      import { formatTranslatorError, TranslatorPool } from "../../packages/core/dist/index.js";
       import { createOnnxEngine } from "../../packages/engine-onnx/dist/index.js";
 
       // ----- Beispielfließtexte (längere Texte für die Batch-Demo) -----
@@ -521,15 +523,20 @@
       const runBatchBtn = document.getElementById("run-batch");
       const clearBatchBtn = document.getElementById("clear-batch");
 
-      // ----- Translator-Verwaltung (ein Translator pro Sprachpaar) -----
-      let translator = null;
-      let engine = null;
-      let currentPair = null;
+      // ----- Translator-Verwaltung (TranslatorPool: ein Translator pro Sprachpaar, gecacht) -----
+      // Engine einmal erstellen und über alle Translator teilen — ein Worker für alle Paare.
+      const engine = createOnnxEngine({ device: "auto", dtype: "bnb4" });
+      const pool = new TranslatorPool({
+        engines: [engine],
+        maxSize: 4, // älteste Translator werden bei Überschreitung disposed (LRU)
+        onProgress: (e) => {
+          if (Number.isFinite(e.progress)) setProgress(e.progress, `Lade Modell … ${Math.round(e.progress * 100)}%`);
+        },
+      });
       let isLoading = false;
 
       /** Liest die vom Engine aufgelöste device/dtype-Konfiguration. */
       function capabilitiesLabel() {
-        if (!engine) return "";
         const caps = engine.capabilities();
         if (caps.device === "auto") return "";
         return ` · ${caps.device}/${caps.dtype}`;
@@ -547,24 +554,7 @@
       }
 
       async function getTranslator() {
-        const from = fromSel.value;
-        const to = toSel.value;
-        const pairKey = `${from}-${to}`;
-        if (translator && currentPair === pairKey) return translator;
-        if (translator) await translator.dispose();
-        // dtype: "bnb4" — fp16 on WebGPU produces empty/garbage output for short
-        // strings (UI labels). bnb4 works reliably on both WebGPU and WASM.
-        engine = createOnnxEngine({ device: "auto", dtype: "bnb4" });
-        translator = await createTranslator({
-          from,
-          to,
-          engines: [engine],
-          onProgress: (e) => {
-            if (Number.isFinite(e.progress)) setProgress(e.progress, `Lade Modell … ${Math.round(e.progress * 100)}%`);
-          },
-        });
-        currentPair = pairKey;
-        return translator;
+        return pool.switchTo(fromSel.value, toSel.value);
       }
 
       async function ensureReady() {
@@ -592,10 +582,6 @@
           setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
         }
         return t;
-      }
-
-      function formatError(err) {
-        return `Fehler: ${err?.code ?? "UNKNOWN"}: ${err?.message ?? err}`;
       }
 
       // ----- Live-Section (LiveSession mit Debouncing) -----
@@ -626,7 +612,7 @@
             liveStatus.textContent = `${done}/${e.segments.length} Sätze fertig`;
           });
           liveSession.on("error", (err) => {
-            out.textContent = formatError(err);
+            out.textContent = formatTranslatorError(err);
             out.classList.remove("placeholder");
             liveStatus.textContent = "Fehler";
           });
@@ -653,7 +639,7 @@
             liveStatus.textContent = "";
           }
         } catch (err) {
-          out.textContent = formatError(err);
+          out.textContent = formatTranslatorError(err);
           setStatus("error", "Fehler bei der Übersetzung");
         } finally {
           runBtn.disabled = false;
@@ -745,7 +731,7 @@
           item.status.textContent = "fertig";
           return true;
         } catch (err) {
-          item.out.textContent = formatError(err);
+          item.out.textContent = formatTranslatorError(err);
           item.status.className = "status is-error";
           item.status.textContent = "Fehler";
           return false;
@@ -785,7 +771,7 @@
         } catch (err) {
           setStatus("error", "Fehler beim Laden des Modells");
           for (const item of target) {
-            item.out.textContent = formatError(err);
+            item.out.textContent = formatTranslatorError(err);
             item.out.classList.remove("placeholder");
             item.status.className = "status is-error";
             item.status.textContent = "Fehler";
@@ -859,7 +845,7 @@
           i18nStats.textContent = `${total} Strings → ${unique} eindeutig → 1 Batch-Aufruf`;
           setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
         } catch (err) {
-          i18nStats.textContent = formatError(err);
+          i18nStats.textContent = formatTranslatorError(err);
           setStatus("error", "Fehler bei der Übersetzung");
         } finally {
           runI18nBtn.disabled = false;
@@ -897,8 +883,8 @@
         partialOut.classList.add("placeholder");
         liveStatus.textContent = "";
       }
-      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); resetLiveOnLangChange(); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
-      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); resetLiveOnLangChange(); translator = null; currentPair = null; i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); resetLiveOnLangChange(); i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); resetLiveOnLangChange(); i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
 
       preloadBtn.addEventListener("click", async () => {
         preloadBtn.disabled = true;

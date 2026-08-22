@@ -10,6 +10,7 @@ import {
   type StaticModelRegistry,
   type TranslationEngine,
   type TranslationResult,
+  type TranslateOptions,
 } from "@lite-translator/core";
 import { ENGINE_ID } from "./models.js";
 import {
@@ -159,7 +160,15 @@ export class TransformersEngine implements TranslationEngine {
     ];
   }
 
-  /** Loads the model in the worker (lazy, idempotent per pair). */
+  /**
+   * Loads the model in the worker (lazy, idempotent per pair).
+   *
+   * When switching to a different pair while a model is already loaded, the
+   * old model is disposed in the worker first — the worker supports only one
+   * model at a time (`handleLoad` throws "Worker already loaded model"
+   * otherwise). This keeps the shared engine usable across pairs without
+   * requiring a separate worker per pair.
+   */
   load(pair: LanguagePair, onProgress?: ProgressCallback): Promise<void> {
     this.#assertNotDisposed();
     const key = languagePairKey(pair);
@@ -171,16 +180,40 @@ export class TransformersEngine implements TranslationEngine {
     return this.#loadPromise;
   }
 
+  /**
+   * Disposes the currently loaded model in the worker (without terminating
+   * the worker) so that a different model can be loaded next. Used internally
+   * by `#loadModel` before loading a new pair. If no model is loaded or the
+   * dispose fails, it is a no-op — the worker is resilient to a second load
+   * after a failed dispose because `handleDispose` resets `pipe` to undefined.
+   */
+  async #disposeLoadedModel(): Promise<void> {
+    if (!this.#worker || this.#loadedPair === undefined) {
+      return;
+    }
+    try {
+      await this.#request({ kind: "dispose", id: this.#nextId() });
+    } catch {
+      // Ignore — the worker may have already disposed or errored.
+    }
+    this.#loadedPair = undefined;
+  }
+
   /** Translates after loading. */
   async translate(
     text: string,
     pair: LanguagePair,
+    options?: TranslateOptions,
   ): Promise<TranslationResult> {
     this.#assertNotDisposed();
     if (this.#loadedPair !== languagePairKey(pair)) {
       await this.load(pair);
     }
-    const response = await this.#request({ kind: "translate", id: this.#nextId(), text });
+    const id = this.#nextId();
+    const response = await this.#requestWithAbort(
+      { kind: "translate", id, text },
+      options?.signal,
+    );
     if (response.kind !== "result" || !("text" in response)) {
       throw new TranslatorError(
         ERROR_CODES.TRANSLATION_FAILED,
@@ -204,6 +237,7 @@ export class TransformersEngine implements TranslationEngine {
   async translateBatch(
     texts: string[],
     pair: LanguagePair,
+    options?: TranslateOptions,
   ): Promise<TranslationResult[]> {
     this.#assertNotDisposed();
     if (this.#loadedPair !== languagePairKey(pair)) {
@@ -223,7 +257,11 @@ export class TransformersEngine implements TranslationEngine {
     const translated: string[] = new Array(texts.length).fill("");
     for (let i = 0; i < nonEmptyTexts.length; i += MAX_BATCH) {
       const chunk = nonEmptyTexts.slice(i, i + MAX_BATCH);
-      const response = await this.#request({ kind: "translate", id: this.#nextId(), texts: chunk });
+      const id = this.#nextId();
+      const response = await this.#requestWithAbort(
+        { kind: "translate", id, texts: chunk },
+        options?.signal,
+      );
       if (response.kind !== "result" || !("texts" in response)) {
         throw new TranslatorError(
           ERROR_CODES.TRANSLATION_FAILED,
@@ -295,6 +333,10 @@ export class TransformersEngine implements TranslationEngine {
         `Model ${descriptor.id} has no engineModelId`,
       );
     }
+    // Dispose the currently loaded model in the worker before loading a new
+    // one — the worker supports only one model at a time. This allows the
+    // shared engine to switch pairs without a separate worker per pair.
+    await this.#disposeLoadedModel();
     // Resolve device/dtype asynchronously (WebGPU probing is async).
     const caps = await resolveDeviceDtype(this.#device, this.#dtype);
     let downloaded = false;
@@ -438,6 +480,39 @@ export class TransformersEngine implements TranslationEngine {
       this.#pending.set(message.id, { resolve, reject, ...(onEvent ? { onEvent } : {}) });
       worker.postMessage(message);
     });
+  }
+
+  /**
+   * Like {@link #request}, but rejects the pending promise when the given
+   * `AbortSignal` fires. The worker result (if it arrives after abort) is
+   * silently dropped via the existing `if (!pending) return` guard in
+   * `#handleMessage`. Transformers.js `pipe()` cannot cancel mid-inference, so
+   * the worker continues — only the caller's promise is rejected.
+   */
+  #requestWithAbort(
+    message: { kind: "translate"; id: number; text?: string; texts?: string[] },
+    signal?: AbortSignal,
+  ): Promise<WorkerResponse> {
+    const promise = this.#request(message);
+    if (!signal) return promise;
+    if (signal.aborted) {
+      this.#pending.delete(message.id);
+      return Promise.reject(
+        new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Translation aborted"),
+      );
+    }
+    const onAbort = () => {
+      const pending = this.#pending.get(message.id);
+      if (pending) {
+        this.#pending.delete(message.id);
+        pending.reject(
+          new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Translation aborted"),
+        );
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    // Clean up the listener when the request settles normally.
+    return promise.finally(() => signal.removeEventListener("abort", onAbort));
   }
 }
 

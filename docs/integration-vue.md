@@ -15,6 +15,7 @@ npm install @lite-translator/core @lite-translator/engine-onnx
 import { onBeforeUnmount, ref, shallowRef } from "vue";
 import {
   createTranslator,
+  formatTranslatorError,
   type Translator,
   type ProgressEvent,
 } from "@lite-translator/core";
@@ -52,7 +53,7 @@ async function handleTranslate() {
     const result = await translator.value.translate(input.value);
     output.value = result.text;
   } catch (err) {
-    output.value = `Error: ${(err as { code?: string }).code ?? "UNKNOWN"}`;
+    output.value = formatTranslatorError(err);
   } finally {
     loading.value = false;
   }
@@ -61,7 +62,7 @@ async function handleTranslate() {
 
 <template>
   <div style="max-width: 480px; display: grid; gap: 12px">
-    <textarea v-model="input" rows="4" />
+    <textarea v-model="input" rows={4} />
     <button :disabled="loading" @click="handleTranslate">
       {{ loading ? "Translating…" : "Translate" }}
     </button>
@@ -70,6 +71,11 @@ async function handleTranslate() {
   </div>
 </template>
 ```
+
+> **AbortSignal:** `translate()` accepts an optional `AbortSignal` via
+> `{ signal }`. When the signal is already aborted, the call rejects with
+> `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
+> translations when the user switches language mid-flight.
 
 ## Batch translation
 
@@ -130,41 +136,54 @@ component registers its strings with a single `t(key, text)` call; one
 strings — one inference call, no race conditions, no per-component arrays.
 
 The store lives inside core (`TranslationStore`). Vue binds to it via a
-`reactive()` snapshot that is refreshed on store notifications.
+`reactive()` snapshot that is refreshed on store notifications. Since `snapshot()`
+returns a cached, frozen reference (F1), the subscribe callback can simply
+`Object.assign` the new values into the reactive object.
 
 ### Step 1: Composable — `useTranslation()`
 
 ```ts
 // src/useTranslation.ts
-import { reactive, shallowRef, onBeforeUnmount } from "vue";
+import { reactive, shallowRef, onBeforeUnmount, watch } from "vue";
 import { type Translator } from "@lite-translator/core";
 
 /**
  * Returns `{ t, translateAll, translations }` for a translator.
  * `translations` is a reactive object that updates after `translateAll()`.
+ *
+ * Uses `watch` on `translator` so the store subscription is properly cleaned
+ * up when the translator changes. Since `snapshot()` returns a cached frozen
+ * reference (F1), the subscribe callback can `Object.assign` directly.
  */
 export function useTranslation(translator: Translator | null) {
   const tFn = shallowRef<((key: string, text?: string) => string) | null>(null);
   const translations = reactive<Record<string, string>>({});
-  let unsubscribe: (() => void) | null = null;
 
-  if (translator) {
-    tFn.value = translator.t();
-    const store = translator.store()!;
-    unsubscribe = store.subscribe(() => {
-      const snap = store.snapshot();
-      // Replace keys without losing reactivity (in-place update).
-      for (const key of Object.keys(translations)) {
-        if (!(key in snap)) delete translations[key];
+  watch(
+    () => translator,
+    (t, _old, onCleanup) => {
+      if (!t) {
+        tFn.value = null;
+        return;
       }
-      for (const [key, value] of Object.entries(snap)) {
-        translations[key] = value;
-      }
-    });
-  }
+      tFn.value = t.t();
+      const store = t.store()!;
+      const unsub = store.subscribe(() => {
+        // snapshot() is cached + frozen (F1) — assign directly.
+        const snap = store.snapshot();
+        for (const key of Object.keys(translations)) {
+          if (!(key in snap)) delete translations[key];
+        }
+        for (const [key, value] of Object.entries(snap)) {
+          translations[key] = value;
+        }
+      });
+      onCleanup(() => unsub());
+    },
+    { immediate: true },
+  );
 
   onBeforeUnmount(() => {
-    unsubscribe?.();
     tFn.value = null;
   });
 
@@ -257,6 +276,159 @@ async function onTranslateAll() {
 >
 > **Deduplication:** If multiple components register the same value (e.g.
 > "Abbrechen" appears twice), core sends it to the engine only once.
+
+## Live translation (while typing)
+
+`translator.createLiveSession({ debounce })` translates **while the user
+types** — ideal for chat messages or speech-to-text. The session segments the
+input at sentence boundaries, caches translations of completed sentences, and
+only re-translates the still-growing tail on each `update()`. Outdated results
+are discarded automatically.
+
+See [live-translation.md](live-translation.md) for the full concept. This is the
+Vue 3 binding.
+
+```vue
+<!-- src/LiveTranslator.vue -->
+<script setup lang="ts">
+import { onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { type LiveSession, type Translator } from "@lite-translator/core";
+
+const props = defineProps<{ translator: Translator | null }>();
+
+const input = ref("Hallo Welt. Wie geht es dir?");
+const text = ref("");
+const partial = ref("");
+const session = shallowRef<LiveSession | null>(null);
+
+// Create/dispose the live session whenever the translator changes.
+watch(
+  () => props.translator,
+  (t) => {
+    session.value?.dispose();
+    text.value = "";
+    partial.value = "";
+    if (!t) {
+      session.value = null;
+      return;
+    }
+    const live = t.createLiveSession({ debounce: 250 });
+    live.on("translation", (e) => {
+      text.value = e.text;
+      partial.value = e.partial;
+    });
+    session.value = live;
+  },
+  { immediate: true },
+);
+
+function onInput() {
+  session.value?.update(input.value);
+}
+
+onBeforeUnmount(() => {
+  session.value?.dispose();
+  session.value = null;
+});
+</script>
+
+<template>
+  <div style="max-width: 480px; display: grid; gap: 12px">
+    <textarea v-model="input" rows="4" @input="onInput" />
+    <output style="white-space: pre-wrap">{{ text }}</output>
+    <output style="opacity: 0.6">{{ partial }}</output>
+  </div>
+</template>
+```
+
+- Completed sentences stay stable (cached); only the active fragment updates.
+- The `watch` cleanup disposes the session when the translator changes or the
+  component unmounts — canceling pending debounced work.
+- For speech-to-text, feed `live.update(text)` from the recognizer's `onresult`
+  handler and render `e.segments` filtered by `complete` for the stable area.
+
+## Multi-language (switching target languages)
+
+Each `Translator` instance is bound to exactly one language pair (`from`/`to`).
+To let the user switch languages at runtime, use `TranslatorPool` — it caches
+translators by pair and reuses the one already created. An optional `maxSize`
+enables LRU eviction of the oldest cached translator.
+
+```vue
+<!-- src/MultiLanguageTranslator.vue -->
+<script setup lang="ts">
+import { ref, onBeforeUnmount } from "vue";
+import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
+import { createOnnxEngine } from "@lite-translator/engine-onnx";
+
+const from = ref("de");
+const to = ref("en");
+const input = ref("Hallo Welt");
+const output = ref("");
+const loading = ref(false);
+
+const pool = new TranslatorPool({
+  engines: [createOnnxEngine()],
+  maxSize: 3, // dispose oldest translator beyond this limit
+});
+
+async function handleTranslate() {
+  loading.value = true;
+  output.value = "";
+  try {
+    const translator = await pool.switchTo(from.value, to.value);
+    const result = await translator.translate(input.value);
+    output.value = result.text;
+  } catch (err) {
+    output.value = formatTranslatorError(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onBeforeUnmount(() => {
+  void pool.dispose();
+});
+</script>
+
+<template>
+  <div style="max-width: 480px; display: grid; gap: 12px">
+    <div style="display: flex; gap: 12px">
+      <label>
+        From:
+        <select v-model="from">
+          <option value="de">Deutsch</option>
+          <option value="en">English</option>
+          <option value="fr">Français</option>
+        </select>
+      </label>
+      <label>
+        To:
+        <select v-model="to">
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+        </select>
+      </label>
+    </div>
+    <textarea v-model="input" rows="4" />
+    <button :disabled="loading" @click="handleTranslate">
+      {{ loading ? "Translating…" : "Translate" }}
+    </button>
+    <output style="white-space: pre-wrap">{{ output }}</output>
+  </div>
+</template>
+```
+
+- Unsupported pairs throw `LANGUAGE_PAIR_NOT_SUPPORTED` immediately — show a
+  friendly message. See [language-selection.md](language-selection.md) for the
+  full list of built-in pairs and how to register custom ones.
+- Engines and loaded models are shared across translators created from the
+  same `createOnnxEngine()` instance; switching back to a previous pair reuses
+  the cached model instantly.
+- Dispose translators you no longer need with `await translator.dispose()`
+  (e.g. on app logout). The engine worker terminates when the last translator
+  is disposed — or keep the engine alive for the whole app lifetime.
 
 ## Notes
 
