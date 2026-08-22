@@ -1,6 +1,6 @@
 {
   "name": "@lite-translator/engine-onnx",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "description": "Local machine-translation engine for lite-translator, powered by Transformers.js.",
   "type": "module",
   "main": "./dist/index.js",
@@ -38,12 +38,18 @@
     "offline"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realdeepnull/lite-translator.git",
+    "directory": "packages/engine-onnx"
+  },
+  "homepage": "https://github.com/realdeepnull/lite-translator#readme",
   "dependencies": {
     "@huggingface/transformers": "^4.2.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@lite-translator/core": "^0.2.0",
+    "@lite-translator/core": "^0.1.0",
     "@vitest/browser": "^3.2.7",
     "playwright": "^1.62.1",
     "publint": "^0.3.24",
@@ -54,6 +60,6 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@lite-translator/core": "^0.2.0"
+    "@lite-translator/core": "^0.1.0"
   }
 }

@@ -1,11 +1,25 @@
 # @lite-translator/engine-onnx
 
-Local machine-translation engine for lite-translator, powered by [Transformers.js](https://huggingface.co/docs/transformers.js) in a Web Worker.
+[![npm version](https://img.shields.io/npm/v/@lite-translator/engine-onnx)](https://www.npmjs.com/package/@lite-translator/engine-onnx)
+[![License: MIT](https://img.shields.io/npm/l/@lite-translator/engine-onnx)](https://github.com/realdeepnull/lite-translator/blob/main/LICENSE)
+
+> Local machine-translation engine for [lite-translator](https://github.com/realdeepnull/lite-translator),
+> powered by [Transformers.js](https://huggingface.co/docs/transformers.js) in a Web Worker.
+
+Part of [lite-translator](https://github.com/realdeepnull/lite-translator). This package provides the ONNX/Transformers.js engine implementation. Pair it with [`@lite-translator/core`](https://www.npmjs.com/package/@lite-translator/core) for the engine-independent API.
+
+## Features
 
 - Quantized OPUS-MT models for `de ↔ en`, `fr ↔ en`, `es ↔ en`, `it ↔ en`, `nl ↔ en` (loaded from the Hugging Face Hub)
 - Inference runs in a Web Worker (UI stays responsive)
 - Models are cached in the browser (Cache Storage) and work offline after the first download
-- **WebGPU acceleration** with automatic WASM fallback (Step 10)
+- **WebGPU acceleration** with automatic WASM fallback
+
+## Install
+
+```sh
+npm install @lite-translator/core @lite-translator/engine-onnx
+```
 
 ## Usage
 
@@ -58,10 +72,10 @@ const engine = createOnnxEngine({ device: "wasm" });
 const engine = createOnnxEngine({ device: "auto", dtype: "fp32" });
 ```
 
-| Device   | Default dtype | Notes |
-|----------|---------------|-------|
-| `webgpu` | `fp16` (or `fp32` when `shader-f16` is unavailable) | Fastest inference |
-| `wasm`   | `bnb4` | Safe default; `fp32` triggers `ShapeInferenceError`, `q8`/`int8`/`q4` trigger `MatMulNBits` regression |
+| Device   | Default dtype                                       | Notes                                                                                                  |
+| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `webgpu` | `fp16` (or `fp32` when `shader-f16` is unavailable) | Fastest inference                                                                                      |
+| `wasm`   | `bnb4`                                              | Safe default; `fp32` triggers `ShapeInferenceError`, `q8`/`int8`/`q4` trigger `MatMulNBits` regression |
 
 After loading, the resolved device and dtype are available via `capabilities()`:
 
@@ -77,18 +91,18 @@ console.log(engine.capabilities()); // { device: "webgpu", dtype: "fp16" } or { 
 The default registry ships quantized OPUS-MT models for the following pairs.
 Each pair is demand-loaded on first use and cached for offline access.
 
-| Pair    | Default model ID                      |
-|---------|----------------------------------------|
-| `de-en` | `onnx-community/opus-mt-de-en`         |
-| `en-de` | `onnx-community/opus-mt-en-de`         |
-| `fr-en` | `onnx-community/opus-mt-fr-en`         |
-| `en-fr` | `onnx-community/opus-mt-en-fr`         |
-| `es-en` | `onnx-community/opus-mt-es-en`         |
-| `en-es` | `onnx-community/opus-mt-en-es`         |
-| `it-en` | `onnx-community/opus-mt-it-en`         |
-| `en-it` | `onnx-community/opus-mt-en-it`         |
-| `nl-en` | `onnx-community/opus-mt-nl-en`         |
-| `en-nl` | `onnx-community/opus-mt-en-nl`         |
+| Pair    | Default model ID               |
+| ------- | ------------------------------ |
+| `de-en` | `onnx-community/opus-mt-de-en` |
+| `en-de` | `onnx-community/opus-mt-en-de` |
+| `fr-en` | `onnx-community/opus-mt-fr-en` |
+| `en-fr` | `onnx-community/opus-mt-en-fr` |
+| `es-en` | `onnx-community/opus-mt-es-en` |
+| `en-es` | `onnx-community/opus-mt-en-es` |
+| `it-en` | `onnx-community/opus-mt-it-en` |
+| `en-it` | `onnx-community/opus-mt-en-it` |
+| `nl-en` | `onnx-community/opus-mt-nl-en` |
+| `en-nl` | `onnx-community/opus-mt-en-nl` |
 
 Any other pair throws `LANGUAGE_PAIR_NOT_SUPPORTED` at translator creation.
 
@@ -109,3 +123,12 @@ const engine = createOnnxEngine({
 
 Each model ID can also be set through the matching `VITE_MODEL_ID_*` environment
 variable, which takes precedence over the built-in default.
+
+## Related
+
+- [GitHub repository](https://github.com/realdeepnull/lite-translator)
+- [Roadmap](https://github.com/realdeepnull/lite-translator/blob/main/docs/ROADMAP.md)
+- [API reference](https://github.com/realdeepnull/lite-translator/blob/main/docs/api.md)
+- [WebGPU acceleration](https://github.com/realdeepnull/lite-translator/blob/main/docs/webgpu-acceleration.md)
+- [Integration guides](https://github.com/realdeepnull/lite-translator#integration-guides)
+- [Core package: @lite-translator/core](https://www.npmjs.com/package/@lite-translator/core)

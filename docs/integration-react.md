@@ -8,64 +8,73 @@ This guide shows how to use `@lite-translator/core` and `@lite-translator/engine
 npm install @lite-translator/core @lite-translator/engine-onnx
 ```
 
-## Example: Translator component
+## Step 1: Shared pool singleton
 
-```tsx
-import { useEffect, useRef, useState } from "react";
-import {
-  createTranslator,
-  formatTranslatorError,
-  type Translator,
-  type ProgressEvent,
-} from "@lite-translator/core";
+React doesn't use DI, so we create a module-level singleton: one shared engine (one Web Worker) and a `TranslatorPool` that caches translators by language pair. Import `pool` from any component.
+
+```ts
+// src/pool.ts
+import { TranslatorPool, type ProgressEvent } from "@lite-translator/core";
 import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
-export function TranslatorExample() {
+const engine = createOnnxEngine();
+
+let progressCallback: ((e: ProgressEvent) => void) | null = null;
+
+export const pool = new TranslatorPool({
+  engines: [engine],
+  onProgress: (e: ProgressEvent) => {
+    if (Number.isFinite(e.progress)) {
+      progressCallback?.(e);
+    },
+  },
+});
+
+export function setProgressCallback(cb: ((e: ProgressEvent) => void) | null): void {
+  progressCallback = cb;
+}
+```
+
+> **Rule of thumb:** call `createOnnxEngine()` **exactly once** per app lifetime.
+> The singleton above does it correctly. Creating the engine inside a component
+> spawns a new Web Worker per mount (~30–50 MB each).
+
+## Step 2: Basic component — translate
+
+```tsx
+// src/DemoPage.tsx
+import { useRef, useState } from "react";
+import { formatTranslatorError, type Translator } from "@lite-translator/core";
+import { pool } from "./pool";
+
+export function DemoPage() {
+  const [from, setFrom] = useState("de");
+  const [to, setTo] = useState("en");
   const [input, setInput] = useState("Hallo Welt, wie geht es dir?");
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
   const translatorRef = useRef<Translator | null>(null);
 
-  // Create the translator on mount and clean up on unmount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const translator = await createTranslator({
-        from: "de",
-        to: "en",
-        engines: [createOnnxEngine()],
-        onProgress: (e: ProgressEvent) => {
-          if (Number.isFinite(e.progress)) setProgress(e.progress);
-        },
-      });
-      if (cancelled) {
-        await translator.dispose();
-        return;
-      }
-      translatorRef.current = translator;
-    })();
-    return () => {
-      cancelled = true;
-      void translatorRef.current?.dispose();
-      translatorRef.current = null;
-    };
-  }, []);
+  async function getTranslator(): Promise<Translator> {
+    if (!translatorRef.current) {
+      translatorRef.current = await pool.switchTo(from, to);
+    }
+    return translatorRef.current;
+  }
 
-  const handleTranslate = async () => {
-    const translator = translatorRef.current;
-    if (!translator) return;
+  async function handleTranslate() {
     setLoading(true);
     setOutput("");
     try {
-      const result = await translator.translate(input);
+      const t = await getTranslator();
+      const result = await t.translate(input);
       setOutput(result.text);
     } catch (err) {
       setOutput(formatTranslatorError(err));
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div style={{ maxWidth: 480, display: "grid", gap: 12 }}>
@@ -73,7 +82,6 @@ export function TranslatorExample() {
       <button onClick={handleTranslate} disabled={loading}>
         {loading ? "Translating…" : "Translate"}
       </button>
-      {loading && <progress max={1} value={progress} style={{ width: "100%" }} />}
       <output style={{ whiteSpace: "pre-wrap" }}>{output}</output>
     </div>
   );
@@ -85,7 +93,7 @@ export function TranslatorExample() {
 > `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
 > translations when the user switches language mid-flight.
 
-## Batch translation
+## Step 3: Batch translation
 
 `translateBatch()` translates multiple texts in a single worker roundtrip. The
 ONNX engine uses native Transformers.js batching (`pipe([...])`) — one
@@ -93,31 +101,29 @@ tokenization, encoder and decoder pass for the whole batch instead of N
 sequential roundtrips. Result order matches input order; empty strings are
 passed through unchanged. Batches larger than 32 texts are chunked automatically.
 
+No pool changes needed — call `translateBatch()` on the translator directly:
+
 ```tsx
-function BatchTranslator() {
-  const [outputs, setOutputs] = useState<string[]>([]);
-  const translatorRef = useRef<Translator | null>(null);
-
-  // … create translator in useEffect as above …
-
-  const handleBatch = async () => {
-    const translator = translatorRef.current;
-    if (!translator) return;
-    const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
-    const results = await translator.translateBatch(inputs);
-    setOutputs(results.map((r) => r.text));
-  };
-
-  return (
-    <div>
-      <button onClick={handleBatch}>Translate all</button>
-      <ul>
-        {outputs.map((text, i) => (
-          <li key={i}>{text}</li>
-        ))}
-      </ul>
-    </div>
-  );
+async function handleBatch() {
+  setBatchRunning(true);
+  try {
+    const t = await getTranslator();
+    const texts = batchItems.map((i) => i.text);
+    const results = await t.translateBatch(texts);
+    setBatchItems(batchItems.map((item, i) => ({
+      ...item,
+      translated: results[i]?.text ?? "",
+      status: "done" as const,
+    })));
+  } catch (err) {
+    setBatchItems(batchItems.map((item) => ({
+      ...item,
+      translated: formatTranslatorError(err),
+      status: "error" as const,
+    })));
+  } finally {
+    setBatchRunning(false);
+  }
 }
 ```
 
@@ -125,7 +131,7 @@ function BatchTranslator() {
 > faster than N individual `translate()` calls because the fixed inference cost
 > (session setup, KV-cache init, kernel dispatch) is paid once per batch.
 
-## i18n-style translation: `t()` + `translateAll()`
+## Step 4: i18n-style translation — `useTranslation()` hook
 
 For UI strings spread across many components, the `t()` / `translateAll()`
 pattern is simpler than managing `translateBatch()` arrays yourself. Each
@@ -137,121 +143,119 @@ The store lives inside core (`TranslationStore`). React binds to it via
 `useSyncExternalStore`, which is the idiomatic way to consume an external
 mutable store in React 18.
 
-### Step 1: Hook — `useTranslation()`
-
-> **`snapshot()` returns a cached, frozen reference.** Since F1
-> (Store-Snapshot Caching), `TranslationStore.snapshot()` returns the same
-> object when the store hasn't changed — no `Object.fromEntries()` per call.
-> This means `useSyncExternalStore` can use `() => store.snapshot()` directly
-> as `getSnapshot` without infinite re-render loops. No shallow-equal
+> **`snapshot()` returns a cached, frozen reference.** Since the
+> Store-Snapshot Caching optimization, `TranslationStore.snapshot()` returns
+> the same object when the store hasn't changed. This means
+> `useSyncExternalStore` can use `() => store.snapshot()` directly as
+> `getSnapshot` without infinite re-render loops. No shallow-equal
 > workaround needed.
+
+### Hook — `useTranslation(from, to)`
+
+The hook calls `pool.switchTo()` internally and exposes `t()`, `translateAll()`,
+and a reactive `snapshot`. Components don't need a `translator` prop.
 
 ```tsx
 // src/useTranslation.ts
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { type Translator } from "@lite-translator/core";
+import { pool } from "./pool";
 
-/**
- * Returns `{ t, translateAll }` for a translator. `t(key, text)` registers and
- * reads a string; `translateAll()` translates everything in one batch.
- *
- * The store snapshot is cached and frozen inside core (F1), so
- * `useSyncExternalStore` can use `() => store.snapshot()` directly — no
- * shallow-equal workaround needed.
- */
-export function useTranslation(translator: Translator | null) {
-  const tRef = useRef<((key: string, text?: string) => string) | null>(null);
-  const store = translator?.store();
+const EMPTY_SNAPSHOT: Record<string, string> = Object.freeze({});
 
-  // Lazily create the bound t() once per translator.
-  if (translator && !tRef.current) {
-    tRef.current = translator.t();
-  }
-
-  // Subscribe to store changes for re-render after translateAll().
-  // snapshot() returns a stable frozen reference when unchanged (F1).
-  const snapshot = useSyncExternalStore(
-    (cb) => store?.subscribe(cb) ?? (() => {}),
-    () => store?.snapshot() ?? {},
-    () => ({}), // SSR
-  );
+export function useTranslation(from: string, to: string) {
+  const [translator, setTranslator] = useState<Translator | null>(null);
 
   useEffect(() => {
-    return () => {
-      tRef.current = null;
-    };
-  }, [translator]);
+    let cancelled = false;
+    void pool.switchTo(from, to).then((t) => {
+      if (!cancelled) setTranslator(t);
+    });
+    return () => { cancelled = true; };
+  }, [from, to]);
 
-  const t = tRef.current ?? ((key: string) => key);
-  const translateAll = () => translator?.translateAll();
-  return { t, translateAll, snapshot };
+  const store = translator?.store();
+
+  const snapshot = useSyncExternalStore(
+    (cb) => store?.subscribe(cb) ?? (() => {}),
+    () => store?.snapshot() ?? EMPTY_SNAPSHOT,
+    () => EMPTY_SNAPSHOT, // SSR
+  );
+
+  const t = (key: string, text?: string): string => {
+    if (!translator) return key;
+    return translator.t()(key, text);
+  };
+
+  const translateAll = async () => {
+    if (translator) await translator.translateAll();
+  };
+
+  return { t, translateAll, snapshot, ready: !!translator };
 }
 ```
 
-### Step 2: Components — register strings, read reactively
+### Component — register strings, read reactively, translate all
 
 ```tsx
-// src/Header.tsx
-import { type Translator } from "@lite-translator/core";
+// src/I18nPage.tsx
+import { useEffect, useState } from "react";
+import { formatTranslatorError } from "@lite-translator/core";
 import { useTranslation } from "./useTranslation";
 
-export function Header({ translator }: { translator: Translator | null }) {
-  const { t, snapshot } = useTranslation(translator);
-  // Register on first render; t() returns the original synchronously.
-  t("header.title", "Willkommen");
-  t("header.subtitle", "Bitte wählen Sie eine Sprache");
+const UI_STRINGS = [
+  { key: "header.title", original: "Willkommen", section: "header" },
+  { key: "header.subtitle", original: "Bitte wählen Sie eine Sprache", section: "header" },
+  { key: "footer.button", original: "Bestätigen", section: "footer" },
+  { key: "footer.link", original: "Abbrechen", section: "footer" },
+  { key: "toolbar.translateAll", original: "Alle übersetzen", section: "toolbar" },
+  { key: "toolbar.translating", original: "Übersetze …", section: "toolbar" },
+];
 
-  return (
-    <header>
-      <h1>{snapshot["header.title"] ?? "Willkommen"}</h1>
-      <p>{snapshot["header.subtitle"] ?? "Bitte wählen Sie eine Sprache"}</p>
-    </header>
-  );
-}
-
-// src/Footer.tsx
-export function Footer({ translator }: { translator: Translator | null }) {
-  const { t, snapshot } = useTranslation(translator);
-  t("footer.button", "Bestätigen");
-  t("footer.link", "Abbrechen");
-
-  return (
-    <footer>
-      <button>{snapshot["footer.button"] ?? "Bestätigen"}</button>
-      <a href="#">{snapshot["footer.link"] ?? "Abbrechen"}</a>
-    </footer>
-  );
-}
-```
-
-### Step 3: Toolbar — one click, all components translated
-
-```tsx
-// src/Toolbar.tsx
-import { useState } from "react";
-import { type Translator } from "@lite-translator/core";
-import { useTranslation } from "./useTranslation";
-
-export function Toolbar({ translator }: { translator: Translator | null }) {
-  const { translateAll } = useTranslation(translator);
+export function I18nPage() {
+  const { t, translateAll, snapshot, ready } = useTranslation("de", "en");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleClick = async () => {
-    if (!translator) return;
+  // Register UI strings once the translator is ready
+  useEffect(() => {
+    if (!ready) return;
+    for (const item of UI_STRINGS) {
+      t(item.key, item.original);
+    }
+  }, [ready]);
+
+  const handleTranslateAll = async () => {
     setLoading(true);
+    setError("");
     try {
       await translateAll();
-      // → 1× translateBatch(["Willkommen", "Bitte wählen…", "Bestätigen", "Abbrechen"])
-      // → useSyncExternalStore triggers re-render in Header and Footer
+    } catch (err) {
+      setError(formatTranslatorError(err));
     } finally {
       setLoading(false);
     }
   };
 
+  const value = (key: string) => snapshot[key] ?? "";
+
   return (
-    <button onClick={handleClick} disabled={loading}>
-      {loading ? "Translating…" : "Translate all"}
-    </button>
+    <div style={{ maxWidth: 480, display: "grid", gap: 12 }}>
+      <button onClick={handleTranslateAll} disabled={loading || !ready}>
+        {loading ? value("toolbar.translating") : value("toolbar.translateAll")}
+      </button>
+      <table>
+        <tbody>
+          {UI_STRINGS.map((item) => (
+            <tr key={item.key}>
+              <td><code>{item.key}</code></td>
+              <td>{item.original}</td>
+              <td>{value(item.key) || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 ```
@@ -263,8 +267,12 @@ export function Toolbar({ translator }: { translator: Translator | null }) {
 >
 > **Deduplication:** If multiple components register the same value (e.g.
 > "Abbrechen" appears twice), core sends it to the engine only once.
+>
+> **Cross-component:** Multiple components calling `useTranslation("de", "en")`
+> share the same translator (cached by the pool) and the same store. Each
+> component registers its own strings; one `translateAll()` translates all.
 
-## Live translation (while typing)
+## Step 5: Live translation (while typing)
 
 `translator.createLiveSession({ debounce })` translates **while the user
 types** — ideal for chat messages or speech-to-text. The session segments the
@@ -272,39 +280,59 @@ input at sentence boundaries, caches translations of completed sentences, and
 only re-translates the still-growing tail on each `update()`. Outdated results
 are discarded automatically.
 
-See [live-translation.md](live-translation.md) for the full concept. This is the
-React binding.
+See [live-translation.md](live-translation.md) for the full concept.
 
 ```tsx
-// src/LiveTranslator.tsx
+// src/LiveTranslationPage.tsx
 import { useEffect, useRef, useState } from "react";
-import { type LiveSession, type LiveTranslationEvent, type Translator } from "@lite-translator/core";
+import {
+  formatTranslatorError,
+  type LiveSession,
+  type LiveTranslationEvent,
+} from "@lite-translator/core";
+import { pool } from "./pool";
 
-export function LiveTranslator({ translator }: { translator: Translator | null }) {
+export function LiveTranslationPage() {
   const [input, setInput] = useState("Hallo Welt. Wie geht es dir?");
   const [text, setText] = useState("");
   const [partial, setPartial] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const sessionRef = useRef<LiveSession | null>(null);
 
-  // Create/dispose the live session together with the translator.
   useEffect(() => {
-    if (!translator) return;
-    const live = translator.createLiveSession({ debounce: 250 });
-    sessionRef.current = live;
-    const off = live.on("translation", (e: LiveTranslationEvent) => {
-      setText(e.text);
-      setPartial(e.partial);
+    let cancelled = false;
+    void pool.switchTo("de", "en").then((translator) => {
+      if (cancelled) return;
+      const live = translator.createLiveSession({ debounce: 250 });
+      sessionRef.current = live;
+
+      live.on("translation", (e: LiveTranslationEvent) => {
+        setText(e.text);
+        setPartial(e.partial);
+      });
+      live.on("error", (err) => setError(formatTranslatorError(err)));
+
+      setLoading(false);
+      live.update(input);
     });
+
     return () => {
-      off();
-      live.dispose();
+      cancelled = true;
+      sessionRef.current?.dispose();
       sessionRef.current = null;
     };
-  }, [translator]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onInput = (value: string) => {
+    setInput(value);
+    sessionRef.current?.update(value);
+  };
 
   return (
     <div style={{ maxWidth: 480, display: "grid", gap: 12 }}>
-      <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={4} />
+      <textarea value={input} onChange={(e) => onInput(e.target.value)} rows={4} />
       <output style={{ whiteSpace: "pre-wrap" }}>{text}</output>
       <output style={{ opacity: 0.6 }}>{partial}</output>
     </div>
@@ -313,47 +341,45 @@ export function LiveTranslator({ translator }: { translator: Translator | null }
 ```
 
 - Completed sentences stay stable (cached); only the active fragment updates.
-- The `useEffect` cleanup disposes the session when the translator changes or
-  the component unmounts — canceling pending debounced work.
+- The `useEffect` cleanup disposes the session when the component unmounts —
+  canceling pending debounced work.
 - For speech-to-text, feed `live.update(text)` from the recognizer's `onresult`
   handler and render `e.segments` filtered by `complete` for the stable area.
 
-## Multi-language (switching target languages)
+## Step 6: Multi-language (switching target languages)
 
 Each `Translator` instance is bound to exactly one language pair (`from`/`to`).
-To let the user switch languages at runtime, use `TranslatorPool` — it caches
-translators by pair and reuses the one already created. An optional `maxSize`
-enables LRU eviction of the oldest cached translator.
+To let the user switch languages at runtime, call `pool.switchTo(from, to)` —
+it caches translators by pair and reuses the one already created. No extra setup
+needed; the pool singleton from Step 1 handles everything.
 
 ```tsx
-// src/MultiLanguageTranslator.tsx
-import { useRef, useState } from "react";
-import {
-  TranslatorPool,
-  formatTranslatorError,
-} from "@lite-translator/core";
-import { createOnnxEngine } from "@lite-translator/engine-onnx";
+// src/MultiLanguagePage.tsx
+import { useState } from "react";
+import { formatTranslatorError } from "@lite-translator/core";
+import { pool } from "./pool";
 
-export function MultiLanguageTranslator() {
+const LANGS = [
+  { code: "de", label: "Deutsch" },
+  { code: "en", label: "English" },
+  { code: "fr", label: "Français" },
+  { code: "es", label: "Español" },
+];
+
+export function MultiLanguagePage() {
   const [from, setFrom] = useState("de");
   const [to, setTo] = useState("en");
   const [input, setInput] = useState("Hallo Welt");
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
-  const poolRef = useRef<TranslatorPool>();
-
-  if (!poolRef.current) {
-    poolRef.current = new TranslatorPool({
-      engines: [createOnnxEngine()],
-      maxSize: 3, // dispose oldest translator beyond this limit
-    });
-  }
+  const [currentPair, setCurrentPair] = useState("de-en");
 
   const handleTranslate = async () => {
     setLoading(true);
     setOutput("");
     try {
-      const translator = await poolRef.current.switchTo(from, to);
+      const translator = await pool.switchTo(from, to);
+      setCurrentPair(`${from}-${to}`);
       const result = await translator.translate(input);
       setOutput(result.text);
     } catch (err) {
@@ -369,20 +395,17 @@ export function MultiLanguageTranslator() {
         <label>
           From:{" "}
           <select value={from} onChange={(e) => setFrom(e.target.value)}>
-            <option value="de">Deutsch</option>
-            <option value="en">English</option>
-            <option value="fr">Français</option>
+            {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
           </select>
         </label>
         <label>
           To:{" "}
           <select value={to} onChange={(e) => setTo(e.target.value)}>
-            <option value="en">English</option>
-            <option value="de">Deutsch</option>
-            <option value="fr">Français</option>
+            {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
           </select>
         </label>
       </div>
+      <span>Active: <code>{currentPair}</code></span>
       <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={4} />
       <button onClick={handleTranslate} disabled={loading}>
         {loading ? "Translating…" : "Translate"}
@@ -396,18 +419,20 @@ export function MultiLanguageTranslator() {
 - Unsupported pairs throw `LANGUAGE_PAIR_NOT_SUPPORTED` immediately — show a
   friendly message. See [language-selection.md](language-selection.md) for the
   full list of built-in pairs and how to register custom ones.
-- Engines and loaded models are shared across translators created from the
-  same `createOnnxEngine()` instance; switching back to a previous pair reuses
-  the cached model instantly.
-- Dispose translators you no longer need with `await poolRef.current.dispose()`
-  (e.g. on app logout). The engine worker terminates when the last translator
-  is disposed — or keep the engine alive for the whole app lifetime.
+- The engine is created once and shared across all translators via the pool;
+  switching back to a previous pair reuses the cached model instantly.
+- Dispose translators you no longer need with `await pool.disposePair(from, to)`
+  (e.g. on app logout).
 
 ## Notes
 
-- **Lazy loading:** `createTranslator()` does not load a model yet. Only `translate()` or `preload()` loads the model from the Hugging Face Hub. On the first call, the progress bar appears.
-- **Cleanup:** The `useEffect` cleanup calls `dispose()` so the web worker terminates on unmount (otherwise it stays running in the background).
-- **Offline:** After the first download, translation works without a network connection. Use `await translator.isCached()` to check whether the model is already stored locally.
-- **Multiple language pairs:** Create a separate translator for each language pair (`from`/`to` are bound to the instance).
-- **Error codes:** See [packages/core/src/errors.ts](../packages/core/src/errors.ts) — use `formatTranslatorError()` for consistent error strings. For example, catch `OFFLINE_MODEL_MISSING` to warn users about a missing offline cache.
-- **Vite/Create React version:** Both bundlers support the `new URL("./worker.js", import.meta.url)` pattern natively. No extra configuration is needed.
+- **Lazy loading:** `pool.switchTo()` does not load a model yet. Only
+  `translate()` or `preload()` loads the model from the Hugging Face Hub.
+- **Offline:** After the first download, translation works without a network
+  connection. Use `await translator.isCached()` to check whether the model is
+  already stored locally.
+- **Error codes:** See [packages/core/src/errors.ts](../packages/core/src/errors.ts)
+  — use `formatTranslatorError()` for consistent error strings.
+- **Vite/Create React App:** Both bundlers support the
+  `new URL("./worker.js", import.meta.url)` pattern natively. No extra
+  configuration is needed.

@@ -1,6 +1,6 @@
 {
   "name": "@lite-translator/core",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Privacy-friendly, local, offline-capable translation core API for the browser.",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,6 +35,12 @@
     "privacy"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realdeepnull/lite-translator.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/realdeepnull/lite-translator#readme",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "publint": "^0.3.24",

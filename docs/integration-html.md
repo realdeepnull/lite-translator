@@ -26,8 +26,8 @@ Create a project directory:
 ```sh
 mkdir my-html-demo && cd my-html-demo
 npm init -y
-npm install ../lite-translator/lite-translator-core-0.0.1.tgz \
-            ../lite-translator/lite-translator-engine-onnx-0.0.1.tgz
+npm install ../lite-translator/lite-translator-core-0.1.0.tgz \
+            ../lite-translator/lite-translator-engine-onnx-0.1.0.tgz
 ```
 
 Create `index.html`:
@@ -46,25 +46,25 @@ Create `index.html`:
     <progress id="bar" max="1" value="0" style="width:100%"></progress>
 
     <script type="module">
-      import { createTranslator, formatTranslatorError } from "@lite-translator/core";
+      import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
       import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
       const src = document.getElementById("src");
       const out = document.getElementById("out");
       const bar = document.getElementById("bar");
 
+      // One shared engine (one Web Worker) + pool for all language pairs
+      const pool = new TranslatorPool({
+        engines: [createOnnxEngine()],
+        onProgress: (e) => {
+          if (Number.isFinite(e.progress)) bar.value = e.progress;
+        },
+      });
+
       document.getElementById("run").addEventListener("click", async () => {
-        out.value = "Loading model…";
+        out.value = "Translating…";
         try {
-          const translator = await createTranslator({
-            from: "de",
-            to: "en",
-            engines: [createOnnxEngine()],
-            onProgress: (e) => {
-              if (Number.isFinite(e.progress)) bar.value = e.progress;
-            },
-          });
-          out.value = "Translating…";
+          const translator = await pool.switchTo("de", "en");
           const result = await translator.translate(src.value);
           out.value = result.text;
           bar.value = 1;
@@ -108,7 +108,7 @@ Adjust the imports in the HTML:
 
 ```html
 <script type="module">
-  import { createTranslator } from "./core/index.js";
+  import { TranslatorPool } from "./core/index.js";
   import { createOnnxEngine } from "./engine-onnx/index.js";
   // …
 </script>
@@ -126,23 +126,20 @@ passed through unchanged. Batches larger than 32 texts are chunked automatically
 
 ```html
 <script type="module">
-  import { createTranslator } from "@lite-translator/core";
+  import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
   import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
   const out = document.getElementById("out");
 
+  const pool = new TranslatorPool({ engines: [createOnnxEngine()] });
+
   document.getElementById("runBatch").addEventListener("click", async () => {
     out.value = "Translating batch…";
     try {
-      const translator = await createTranslator({
-        from: "de",
-        to: "en",
-        engines: [createOnnxEngine()],
-      });
+      const translator = await pool.switchTo("de", "en");
       const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
       const results = await translator.translateBatch(inputs);
       out.value = results.map((r) => r.text).join("\n");
-      await translator.dispose();
     } catch (err) {
       out.value = formatTranslatorError(err);
     }
@@ -189,17 +186,14 @@ The store lives inside core (`TranslationStore`). Vanilla JS binds to it via
     <output id="status"></output>
 
     <script type="module">
-      import { createTranslator, formatTranslatorError } from "@lite-translator/core";
+      import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
       import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
       const status = document.getElementById("status");
       const translateAllBtn = document.getElementById("translateAllBtn");
 
-      const translator = await createTranslator({
-        from: "de",
-        to: "en",
-        engines: [createOnnxEngine()],
-      });
+      const pool = new TranslatorPool({ engines: [createOnnxEngine()] });
+      const translator = await pool.switchTo("de", "en");
 
       const t = translator.t();
 
@@ -262,18 +256,15 @@ vanilla HTML binding.
 <output id="livePartial" style="opacity: 0.6"></output>
 
 <script type="module">
-  import { createTranslator, formatTranslatorError } from "@lite-translator/core";
+  import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
   import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
   const src = document.getElementById("liveSrc");
   const out = document.getElementById("liveOut");
   const partial = document.getElementById("livePartial");
 
-  const translator = await createTranslator({
-    from: "de",
-    to: "en",
-    engines: [createOnnxEngine()],
-  });
+  const pool = new TranslatorPool({ engines: [createOnnxEngine()] });
+  const translator = await pool.switchTo("de", "en");
 
   const live = translator.createLiveSession({ debounce: 250 });
   live.on("translation", (e) => {
@@ -291,13 +282,14 @@ vanilla HTML binding.
 
 - Completed sentences stay stable (cached); only the active fragment updates.
 - Call `live.clear()` when a new message or speech turn begins.
-- Call `live.dispose()` (e.g. before `translator.dispose()`) to cancel pending work.
+- Call `live.dispose()` when the page is unloaded to cancel pending work.
 
 ## Multi-language (switching target languages)
 
 Each `Translator` instance is bound to exactly one language pair (`from`/`to`).
-To let the user switch languages at runtime, keep a `Map` of translators keyed
-by pair and reuse the one that is already created.
+To let the user switch languages at runtime, call `pool.switchTo(from, to)` —
+it caches translators by pair and reuses the one already created. The pool
+from the first example handles everything; no extra setup needed.
 
 ```html
 <label>Source: <select id="srcLang">
@@ -318,16 +310,13 @@ by pair and reuse the one that is already created.
   import { TranslatorPool, formatTranslatorError } from "@lite-translator/core";
   import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
-  const srcLang = document.getElementById("srcLang") as HTMLSelectElement;
-  const tgtLang = document.getElementById("tgtLang") as HTMLSelectElement;
-  const src = document.getElementById("src") as HTMLTextAreaElement;
+  const srcLang = document.getElementById("srcLang");
+  const tgtLang = document.getElementById("tgtLang");
+  const src = document.getElementById("src");
   const out = document.getElementById("out");
   const run = document.getElementById("run");
 
-  const pool = new TranslatorPool({
-    engines: [createOnnxEngine()],
-    maxSize: 3, // dispose oldest translator beyond this limit
-  });
+  const pool = new TranslatorPool({ engines: [createOnnxEngine()] });
 
   run.addEventListener("click", async () => {
     out.value = "Translating…";
@@ -345,15 +334,13 @@ by pair and reuse the one that is already created.
 - Unsupported pairs throw `LANGUAGE_PAIR_NOT_SUPPORTED` immediately — show a
   friendly message. See [language-selection.md](language-selection.md) for the
   full list of built-in pairs and how to register custom ones.
-- The engine is created once and shared across all translators via
-  `TranslatorPool`; switching back to a previous pair reuses the cached model
-  instantly.
-- Dispose translators you no longer need with `await pool.dispose()`
-  (the engine worker is shared and terminates when the last translator is
-  disposed — or you keep the engine alive for the whole app lifetime).
+- The engine is created once and shared across all translators via the pool;
+  switching back to a previous pair reuses the cached model instantly.
+- Dispose translators you no longer need with `await pool.disposePair(from, to)`
+  (e.g. on page unload).
 
 ## Notes
 
 - **Offline:** After the first model download, translation works without a network connection (Cache Storage).
 - **Error codes:** See [packages/core/src/errors.ts](../packages/core/src/errors.ts) — for example `OFFLINE_MODEL_MISSING`, `LANGUAGE_PAIR_NOT_SUPPORTED`.
-- **Dispose:** Call `await translator.dispose()` when you no longer need the translator to terminate the web worker.
+- **Dispose:** Call `await pool.dispose()` when the page is unloaded to terminate the web worker.

@@ -326,8 +326,6 @@ Non-breaking, additive changes (parallel, no inter-dependencies):
   consistent string. Replaces the duplicated `formatError()` / inline
   `isTranslatorError` checks across all demos.
 
-Breaking change (scoped, additive at the TS level):
-
 - **AbortSignal** (`types.ts`, `translator.ts`, `engine.ts`,
   `engine-onnx/transformers-engine.ts`): `TranslateOptions` gains an optional
   `signal?: AbortSignal`. `translate()`, `translateBatch()`, and
@@ -340,7 +338,26 @@ Breaking change (scoped, additive at the TS level):
 
 ---
 
-### Step 15 — Multi-Model Worker
+### Step 15 — Release v0.1
+
+**Status:** ✅ Done
+
+MVP release: local translation `de ↔ en` with full lifecycle.
+
+Done:
+
+- TypeScript API, engine abstraction, `de ↔ en`, local inference
+- lazy loading, model cache, offline, web worker
+- `translate()`, `preload()`, `dispose()`, progress events, error codes
+- `translateBatch()` (Step 9)
+- WebGPU Acceleration (Step 10)
+- basic tests and browser demo
+- More Languages (Step 12)
+- Live Translation (Step 13)
+
+---
+
+### Step 16 — Multi-Model Worker
 
 **Status:** ⬜ Open
 
@@ -367,25 +384,6 @@ Planned:
 - **One worker for all pairs**: eliminates the need for one worker per
   language pair (currently worked around by `TranslatorPool` creating separate
   translators, each with its own engine instance).
-
----
-
-### Step 16 — Release v0.1
-
-**Status:** ✅ Done
-
-MVP release: local translation `de ↔ en` with full lifecycle.
-
-Done:
-
-- TypeScript API, engine abstraction, `de ↔ en`, local inference
-- lazy loading, model cache, offline, web worker
-- `translate()`, `preload()`, `dispose()`, progress events, error codes
-- `translateBatch()` (Step 9)
-- WebGPU Acceleration (Step 10)
-- basic tests and browser demo
-- More Languages (Step 12)
-- Live Translation (Step 13)
 
 ---
 

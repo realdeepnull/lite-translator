@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-22
+
 ### Added
 
 - **TranslatorPool** (`@lite-translator/core`): reusable pool that caches
@@ -52,6 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `isCached()` is dtype-aware (`_fp16`/`_bnb4`/unsuffixed ONNX URLs).
 - Browser tests with conditional skip (`it.runIf`); benchmark WebGPU vs. WASM
   comparison (`BENCH_RESULT_WEBGPU`); demo shows `capabilities()` in status badge.
+- `translateBatch()` on `Translator` and `TranslationEngine`: translates
+  multiple texts in a single call. The ONNX engine uses native Transformers.js
+  worker batching (`pipe([...])`) — one tokenization, encoder and decoder pass
+  for the whole batch instead of N roundtrips. Result order matches input order;
+  empty strings are preserved. Batches larger than 32 texts are chunked to
+  bound memory pressure (KV-cache grows with batch × sequence length).
+- `withBatchFallback(engine)` helper in `@lite-translator/core`: wraps engines
+  that only implement `translate()` with a safe sequential `translateBatch`,
+  so third-party engines stay compatible with the 0.1.0 interface.
+- Benchmark suite measures `translateBatch()` over the quality-case inputs
+  (`batchTranslateMs`, `batchInputsCount` in the report).
+- Quality suite has a batch-consistency check comparing `translateBatch` with
+  individual `translate()` calls.
+- Demo (`examples/demo`) uses a single `translateBatch()` call for the batch
+  section instead of sequential per-item translations.
 
 ### Changed
 
@@ -73,29 +90,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - WebGPU default dtype changed from `fp16` to `bnb4`: fp16 produces
   empty/garbage output for short strings (UI labels, single words); bnb4
   works reliably on both WebGPU and WASM with GPU acceleration.
-
-## [0.1.0] — 2026-08-19
-
-### Added
-
-- `translateBatch()` on `Translator` and `TranslationEngine`: translates
-  multiple texts in a single call. The ONNX engine uses native Transformers.js
-  worker batching (`pipe([...])`) — one tokenization, encoder and decoder pass
-  for the whole batch instead of N roundtrips. Result order matches input order;
-  empty strings are preserved. Batches larger than 32 texts are chunked to
-  bound memory pressure (KV-cache grows with batch × sequence length).
-- `withBatchFallback(engine)` helper in `@lite-translator/core`: wraps engines
-  that only implement `translate()` with a safe sequential `translateBatch`,
-  so third-party engines stay compatible with the 0.1.0 interface.
-- Benchmark suite measures `translateBatch()` over the quality-case inputs
-  (`batchTranslateMs`, `batchInputsCount` in the report).
-- Quality suite has a batch-consistency check comparing `translateBatch` with
-  individual `translate()` calls.
-- Demo (`examples/demo`) uses a single `translateBatch()` call for the batch
-  section instead of sequential per-item translations.
-
-### Changed
-
 - **Breaking:** `translateBatch` is now a required member of the
   `TranslationEngine` interface. Custom engines must implement it or be wrapped
   with `withBatchFallback(engine)`.
