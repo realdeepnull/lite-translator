@@ -7,7 +7,7 @@ import {
   withBatchFallback,
   TranslationStore,
 } from "../src/index.js";
-import type { TranslationEngine } from "../src/index.js";
+import type { TranslationEngine, TranslationCapabilities, DebugEvent } from "../src/index.js";
 import type { LanguagePair, TranslationResult } from "../src/index.js";
 
 function createMockEngine(id = "onnx", pairs: string[] = ["de-en", "en-de"]) {
@@ -464,5 +464,198 @@ describe("Translator AbortSignal (F6)", () => {
     const promise = translator.translate("Hallo", { signal: controller.signal });
     controller.abort();
     await expect(promise).rejects.toMatchObject({ code: ERROR_CODES.TRANSLATION_FAILED });
+  });
+});
+
+describe("Translator onDebug (DX — debug events)", () => {
+  it("emits load-start and load-done on preload()", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.preload();
+    const types = events.map((e) => e.type);
+    expect(types).toContain("load-start");
+    expect(types).toContain("load-done");
+    const loadDone = events.find((e) => e.type === "load-done");
+    expect(loadDone?.type).toBe("load-done");
+    if (loadDone?.type === "load-done") {
+      expect(loadDone.durationMs).toBeGreaterThanOrEqual(0);
+      expect(loadDone.pair).toEqual({ from: "de", to: "en" });
+    }
+  });
+
+  it("emits translate-start and translate-done on translate()", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.translate("Hallo Welt");
+    const types = events.map((e) => e.type);
+    expect(types).toContain("translate-start");
+    expect(types).toContain("translate-done");
+    const done = events.find((e) => e.type === "translate-done");
+    if (done?.type === "translate-done") {
+      expect(done.inputLength).toBe("Hallo Welt".length);
+      expect(done.outputLength).toBe("[en] Hallo Welt".length);
+      expect(done.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("emits batch-start and batch-done on translateBatch()", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.translateBatch(["a", "b", "c"]);
+    const start = events.find((e) => e.type === "batch-start");
+    const done = events.find((e) => e.type === "batch-done");
+    if (start?.type === "batch-start") expect(start.batchSize).toBe(3);
+    if (done?.type === "batch-done") {
+      expect(done.batchSize).toBe(3);
+      expect(done.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("emits translateall-start and translateall-done on translateAll()", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    const t = translator.t();
+    t("a", "Hallo");
+    t("b", "Welt");
+    t("c", "Hallo"); // duplicate of "a"
+    await translator.translateAll();
+    const start = events.find((e) => e.type === "translateall-start");
+    const done = events.find((e) => e.type === "translateall-done");
+    if (start?.type === "translateall-start") expect(start.keyCount).toBe(3);
+    if (done?.type === "translateall-done") {
+      expect(done.keyCount).toBe(3);
+      expect(done.uniqueCount).toBe(2); // "Hallo" + "Welt" dedup
+      expect(done.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("emits abort when signal is already aborted", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      translator.translate("x", { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.TRANSLATION_FAILED });
+    expect(events.some((e) => e.type === "abort")).toBe(true);
+  });
+
+  it("does not emit debug events when onDebug is absent", async () => {
+    const engine = createMockEngine();
+    // No onDebug — should not throw or produce any side effects.
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await translator.preload();
+    await translator.translate("Hallo");
+    // Just verifying no errors thrown — there's nothing to assert on.
+    expect(translator.isReady()).toBe(true);
+  });
+
+  it("passes onDebug to engine.load()", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.preload();
+    // engine.load should have been called with 3 args (pair, onProgress, onDebug)
+    const loadCall = (engine.load as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(loadCall?.[2]).toBeInstanceOf(Function);
+  });
+});
+
+describe("Translator capabilities (DX)", () => {
+  it("delegates to engine.capabilities() when implemented", async () => {
+    const caps: TranslationCapabilities = {
+      engine: "onnx",
+      device: "wasm",
+      dtype: "bnb4",
+      modelId: "opus-mt-de-en",
+    };
+    const engine = createMockEngine();
+    engine.capabilities = vi.fn(() => caps);
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    expect(translator.capabilities()).toEqual(caps);
+    expect(engine.capabilities).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns undefined when engine does not implement capabilities()", async () => {
+    const engine = createMockEngine();
+    // engine has no capabilities() method
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    expect(translator.capabilities()).toBeUndefined();
+  });
+});
+
+describe("Translator removeModel (DX — cache management)", () => {
+  it("delegates to engine.removeModel() when implemented", async () => {
+    const engine = createMockEngine();
+    engine.removeModel = vi.fn(async () => {});
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await translator.removeModel();
+    expect(engine.removeModel).toHaveBeenCalledTimes(1);
+    expect(engine.removeModel).toHaveBeenCalledWith({ from: "de", to: "en" });
+  });
+
+  it("throws ENGINE_NOT_SUPPORTED when engine does not implement removeModel()", async () => {
+    const engine = createMockEngine();
+    // engine has no removeModel() method
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await expect(translator.removeModel()).rejects.toMatchObject({
+      code: ERROR_CODES.ENGINE_NOT_SUPPORTED,
+    });
+  });
+
+  it("resets ready state so a subsequent preload re-downloads", async () => {
+    const engine = createMockEngine();
+    engine.removeModel = vi.fn(async () => {});
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await translator.preload();
+    expect(translator.isReady()).toBe(true);
+    expect(engine.load).toHaveBeenCalledTimes(1);
+    await translator.removeModel();
+    expect(translator.isReady()).toBe(false);
+    await translator.preload();
+    expect(engine.load).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws after dispose", async () => {
+    const engine = createMockEngine();
+    engine.removeModel = vi.fn(async () => {});
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await translator.dispose();
+    await expect(translator.removeModel()).rejects.toBeInstanceOf(TranslatorError);
   });
 });

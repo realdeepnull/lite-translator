@@ -92,6 +92,52 @@ live.update("Hallo wie geht");
 
 → [Full guide](https://github.com/realdeepnull/lite-translator/blob/main/docs/live-translation.md)
 
+### Debug output
+
+Structured lifecycle and timing events via an opt-in `onDebug` callback —
+zero overhead when absent.
+
+```ts
+const translator = await createTranslator({
+  from: "de",
+  to: "en",
+  engines: [engine],
+  onDebug: (e) => console.debug(`[${e.type}]`, e),
+});
+
+await translator.preload();
+// [load-start] { pair: { from: "de", to: "en" }, ... }
+// [load-done]  { durationMs: 1234, ... }
+
+await translator.translate("Hallo Welt");
+// [translate-start] { inputLength: 10, ... }
+// [translate-done]  { durationMs: 45, outputLength: 11, ... }
+```
+
+→ [Full guide](https://github.com/realdeepnull/lite-translator/blob/main/docs/debug-output.md)
+
+### Capabilities
+
+Inspect the engine's resolved device, dtype, and model after load.
+
+```ts
+await translator.preload();
+console.log(translator.capabilities());
+// { engine: "onnx", device: "wasm", dtype: "bnb4", modelId: "onnx-community/opus-mt-de-en" }
+```
+
+### Cache management
+
+Remove a model from the browser's Cache Storage to free disk space or force
+a re-download.
+
+```ts
+await translator.preload();
+console.log(await translator.isCached()); // true
+await translator.removeModel();
+console.log(await translator.isCached()); // false
+```
+
 ## API
 
 | Export | Description |
@@ -103,6 +149,8 @@ live.update("Hallo wie geht");
 | `translator.t()` | Returns bound `t(key, text?)` for i18n-style registration |
 | `translator.translateAll(options?)` | Translates all `t()`-registered strings in one `translateBatch()` |
 | `translator.createLiveSession(options?)` | Creates a `LiveSession` for incremental live translation |
+| `translator.capabilities()` | Returns resolved engine capabilities (device, dtype, model info) |
+| `translator.removeModel()` | Removes cached model files from Cache Storage |
 | `translator.store()` | Reactive `TranslationStore` backing `t()` (lazy, `undefined` before first `t()`) |
 | `translator.isReady()` | Model loaded and ready |
 | `translator.isCached()` | Model present in local cache (offline-capable) |

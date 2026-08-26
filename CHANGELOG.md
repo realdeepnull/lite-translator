@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Debug output** (`@lite-translator/core`): optional `onDebug` callback on
+  `TranslatorOptions` that emits structured `DebugEvent` lifecycle/timing
+  events (`load-start`/`load-done`, `translate-start`/`translate-done`,
+  `batch-start`/`batch-done`, `translateall-start`/`translateall-done`,
+  `abort`). Engine-internal events (`worker-spawn`, `worker-error`,
+  `device-resolved`, `device-fallback`) are emitted by the ONNX engine.
+  Opt-in — zero overhead when absent. See [docs/debug-output.md](docs/debug-output.md).
+- **`capabilities()`** (`@lite-translator/core`): new `TranslationCapabilities`
+  type (engine-agnostic shape with optional `device`, `dtype`, `modelId`,
+  `modelVersion`). `Translator.capabilities()` delegates to the engine.
+  Optional `capabilities?()` method on `TranslationEngine` interface.
+  `TransformersEngine.capabilities()` returns `{ engine: "onnx", device,
+  dtype, modelId }` after load.
+- **Cache management — `removeModel()`** (`@lite-translator/core`):
+  `Translator.removeModel()` deletes cached model files from browser Cache
+  Storage. Optional `removeModel?()` on `TranslationEngine` interface.
+  `TransformersEngine` implements dtype-aware deletion (current resolved
+  dtype's ONNX files + shared tokenizer/config files). Disposes the loaded
+  model first if the pair matches.
+- `TranslationEngine.load()` gains optional third parameter `onDebug?` for
+  passing the debug callback to the engine. Non-breaking — implementations
+  with fewer parameters remain compatible.
+
 ## [0.1.0] — 2026-08-22
 
 ### Added

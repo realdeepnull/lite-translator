@@ -31,12 +31,114 @@ export interface ProgressEvent {
 
 export type ProgressCallback = (event: ProgressEvent) => void;
 
+/**
+ * Engine-agnostic description of what an engine can do.
+ *
+ * `device` and `dtype` are optional plain strings so that any engine can
+ * report its capabilities without depending on the ONNX-specific union
+ * types. Engines that don't have a notion of device/dtype simply omit them.
+ */
+export interface TranslationCapabilities {
+  /** Stable engine ID, e.g. "onnx". */
+  engine: string;
+  /** Resolved compute device, e.g. "webgpu" or "wasm". */
+  device?: string;
+  /** Resolved data type, e.g. "fp16" or "bnb4". */
+  dtype?: string;
+  /** Model identifier used by the engine, e.g. "onnx-community/opus-mt-de-en". */
+  modelId?: string;
+  /** Model version, if known. */
+  modelVersion?: string;
+}
+
+/**
+ * Structured debug event emitted via the optional `onDebug` callback.
+ *
+ * Events are grouped into three categories:
+ * - **Load lifecycle** — `load-start` / `load-done` (model preload)
+ * - **Translation timing** — `translate-*`, `batch-*`, `translateall-*`
+ * - **Engine internals** — `worker-spawn`, `worker-error`, `device-resolved`,
+ *   `device-fallback`, `abort`
+ *
+ * Every event carries a `timestamp` (from `performance.now()`).
+ * The `onDebug` callback is opt-in and has zero overhead when absent.
+ */
+export type DebugEvent =
+  | { type: "load-start"; timestamp: number; pair: LanguagePair }
+  | { type: "load-done"; timestamp: number; pair: LanguagePair; durationMs: number }
+  | {
+      type: "translate-start";
+      timestamp: number;
+      pair: LanguagePair;
+      inputLength: number;
+    }
+  | {
+      type: "translate-done";
+      timestamp: number;
+      pair: LanguagePair;
+      durationMs: number;
+      inputLength: number;
+      outputLength: number;
+    }
+  | {
+      type: "batch-start";
+      timestamp: number;
+      pair: LanguagePair;
+      batchSize: number;
+    }
+  | {
+      type: "batch-done";
+      timestamp: number;
+      pair: LanguagePair;
+      durationMs: number;
+      batchSize: number;
+    }
+  | {
+      type: "translateall-start";
+      timestamp: number;
+      pair: LanguagePair;
+      keyCount: number;
+    }
+  | {
+      type: "translateall-done";
+      timestamp: number;
+      pair: LanguagePair;
+      durationMs: number;
+      keyCount: number;
+      uniqueCount: number;
+    }
+  | { type: "abort"; timestamp: number; pair: LanguagePair }
+  | { type: "worker-spawn"; timestamp: number; engine: string }
+  | { type: "worker-error"; timestamp: number; engine: string; message: string }
+  | {
+      type: "device-resolved";
+      timestamp: number;
+      engine: string;
+      device: string;
+      dtype: string;
+    }
+  | {
+      type: "device-fallback";
+      timestamp: number;
+      engine: string;
+      from: string;
+      to: string;
+    };
+
+/** Optional debug callback for structured lifecycle/timing events. */
+export type DebugCallback = (event: DebugEvent) => void;
+
 /** Options for createTranslator(). */
 export interface TranslatorOptions {
   from: LanguageCode;
   to: LanguageCode;
   /** Optional progress callback for model download/load. */
   onProgress?: ProgressCallback;
+  /**
+   * Optional debug callback for structured lifecycle and timing events.
+   * Opt-in — zero overhead when absent.
+   */
+  onDebug?: DebugCallback;
   /**
   * Optional list of engines. If omitted, all globally registered engines
   * (registerDefaultEngine) are used.

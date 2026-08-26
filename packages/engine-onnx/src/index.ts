@@ -10,3 +10,4 @@ export type {
   ResolvedDtype,
   ResolvedCapabilities,
 } from "./webgpu.js";
+export type { TranslationCapabilities } from "@lite-translator/core";

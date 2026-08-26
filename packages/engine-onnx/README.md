@@ -83,7 +83,9 @@ After loading, the resolved device and dtype are available via `capabilities()`:
 const engine = createOnnxEngine();
 const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
 await translator.preload();
-console.log(engine.capabilities()); // { device: "webgpu", dtype: "fp16" } or { device: "wasm", dtype: "bnb4" }
+console.log(engine.capabilities());
+// { engine: "onnx", device: "webgpu", dtype: "fp16", modelId: "onnx-community/opus-mt-de-en" }
+// or { engine: "onnx", device: "wasm", dtype: "bnb4", modelId: "..." }
 ```
 
 ## Supported language pairs

@@ -357,7 +357,24 @@ Done:
 
 ---
 
-### Step 16 — Multi-Model Worker
+### Step 16 — Developer Experience (v0.2)
+
+**Status:** 🟡 Partial
+
+Better debug output, cache management and integration.
+
+Done:
+
+- integration examples for Vanilla JS, React, Vue and Angular
+- live sessions (`createLiveSession()`, Step 13)
+- `AbortSignal` support (Step 14)
+- debug output (`onDebug` callback with structured `DebugEvent` lifecycle/timing/engine-internal events)
+- `capabilities()` (`TranslationCapabilities` type in core, `Translator.capabilities()`, optional `TranslationEngine.capabilities?()`)
+- cache management (`Translator.removeModel()`, optional `TranslationEngine.removeModel?()`, dtype-aware Cache Storage deletion)
+
+---
+
+### Step 17 — Multi-Model Worker
 
 **Status:** ⬜ Open
 
@@ -384,28 +401,6 @@ Planned:
 - **One worker for all pairs**: eliminates the need for one worker per
   language pair (currently worked around by `TranslatorPool` creating separate
   translators, each with its own engine instance).
-
----
-
-### Step 17 — Developer Experience (v0.2)
-
-**Status:** 🟡 Partial
-
-Better debug output, cache management and integration.
-
-Done:
-
-- integration examples for Vanilla JS, React, Vue and Angular
-- live sessions (`createLiveSession()`, Step 13)
-- `AbortSignal` support (Step 14)
-
-Missing:
-
-- debug output
-- `capabilities()`
-- cache management
-- performance metrics
-- Svelte example
 
 ---
 

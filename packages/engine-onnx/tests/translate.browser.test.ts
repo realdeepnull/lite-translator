@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createTranslator, type ProgressEvent } from "@lite-translator/core";
-import { createOnnxEngine, detectWebGpu, type ResolvedCapabilities } from "../src/index.js";
+import {
+  createTranslator,
+  type ProgressEvent,
+  type DebugEvent,
+  type TranslationCapabilities,
+} from "@lite-translator/core";
+import { createOnnxEngine, detectWebGpu } from "../src/index.js";
 
 /**
  * Browser integration test: loads a (quantized) OPUS-MT model from the
@@ -108,11 +113,12 @@ describe("TransformersEngine (Browser)", () => {
 // ---------------------------------------------------------------------------
 
 describe("TransformersEngine device selection", () => {
-  it("capabilities() ist vor load 'auto'", () => {
+  it("capabilities() ist vor load { engine: 'onnx' } ohne device/dtype", () => {
     const engine = createOnnxEngine();
     const caps = engine.capabilities();
-    expect(caps.device).toBe("auto");
-    expect(caps.dtype).toBe("auto");
+    expect(caps.engine).toBe("onnx");
+    expect(caps.device).toBeUndefined();
+    expect(caps.dtype).toBeUndefined();
   });
 
   it("device: 'wasm' übersetzt 'Hallo Welt' und meldet wasm/bnb4", async () => {
@@ -160,9 +166,76 @@ describe("TransformersEngine device selection", () => {
     const engine = createOnnxEngine({ device: "auto" });
     const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
     await translator.preload();
-    const caps: ResolvedCapabilities = engine.capabilities() as ResolvedCapabilities;
+    const caps: TranslationCapabilities = engine.capabilities();
+    expect(caps.engine).toBe("onnx");
     expect(caps.device).toBe("wasm");
     expect(caps.dtype).toBe("bnb4");
+    expect(caps.modelId).toContain("opus-mt");
+    await translator.dispose();
+  }, 600000);
+});
+
+// ---------------------------------------------------------------------------
+// removeModel / cache management (Step 16)
+// ---------------------------------------------------------------------------
+
+describe("TransformersEngine removeModel", () => {
+  it("löscht gecachte Modell-Dateien aus dem Cache Storage", async () => {
+    const engine = createOnnxEngine({ device: "wasm" });
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    await translator.preload();
+    expect(await translator.isCached()).toBe(true);
+    await translator.removeModel();
+    expect(await translator.isCached()).toBe(false);
+    // Re-preload should re-download (engine.load called again)
+    await translator.preload();
+    expect(await translator.isCached()).toBe(true);
+    await translator.dispose();
+  }, 600000);
+});
+
+// ---------------------------------------------------------------------------
+// Debug events (Step 16)
+// ---------------------------------------------------------------------------
+
+describe("TransformersEngine debug events", () => {
+  it("emits worker-spawn and device-resolved during preload", async () => {
+    const engine = createOnnxEngine({ device: "wasm" });
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.preload();
+    const types = events.map((e) => e.type);
+    expect(types).toContain("load-start");
+    expect(types).toContain("load-done");
+    expect(types).toContain("worker-spawn");
+    expect(types).toContain("device-resolved");
+    const deviceResolved = events.find((e) => e.type === "device-resolved");
+    if (deviceResolved?.type === "device-resolved") {
+      expect(deviceResolved.engine).toBe("onnx");
+      expect(deviceResolved.device).toBe("wasm");
+      expect(deviceResolved.dtype).toBe("bnb4");
+    }
+    await translator.dispose();
+  }, 600000);
+
+  it("emits translate-start/done on translate()", async () => {
+    const engine = createOnnxEngine({ device: "wasm" });
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.translate("Hallo Welt");
+    const types = events.map((e) => e.type);
+    expect(types).toContain("translate-start");
+    expect(types).toContain("translate-done");
     await translator.dispose();
   }, 600000);
 });

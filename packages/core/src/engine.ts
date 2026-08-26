@@ -1,7 +1,9 @@
 import type {
+  DebugCallback,
   LanguagePair,
   ProgressCallback,
   TranslateOptions,
+  TranslationCapabilities,
   TranslationResult,
 } from "./types.js";
 
@@ -23,7 +25,7 @@ export interface TranslationEngine {
   * Loads the model and runtime. May be called multiple times;
   * repeated calls must be idempotent (no repeated download).
    */
-  load(pair: LanguagePair, onProgress?: ProgressCallback): Promise<void>;
+  load(pair: LanguagePair, onProgress?: ProgressCallback, onDebug?: DebugCallback): Promise<void>;
 
   /** Translates text. Lazily loads the model if it is not loaded yet. */
   translate(
@@ -49,6 +51,20 @@ export interface TranslationEngine {
     pair: LanguagePair,
     options?: TranslateOptions,
   ): Promise<TranslationResult[]>;
+
+  /**
+   * Returns the engine's resolved capabilities (device, dtype, model info).
+   * Optional — engines that don't have a notion of capabilities simply omit it.
+   */
+  capabilities?(): TranslationCapabilities | undefined;
+
+  /**
+   * Removes the cached model files for the given pair from browser Cache
+   * Storage. Optional — engines that don't support cache management omit it.
+   *
+   * If the model is currently loaded, the engine should dispose it first.
+   */
+  removeModel?(pair: LanguagePair): Promise<void>;
 
   /** Releases memory and runtime resources. */
   dispose(): Promise<void>;

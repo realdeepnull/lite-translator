@@ -41,6 +41,9 @@ export type {
   ProgressCallback,
   ProgressEvent,
   TranslateOptions,
+  TranslationCapabilities,
   TranslationResult,
   TranslatorOptions,
+  DebugEvent,
+  DebugCallback,
 } from "./types.js";

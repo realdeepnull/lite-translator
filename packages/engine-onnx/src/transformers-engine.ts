@@ -3,11 +3,14 @@ import {
   TranslatorError,
   isStaticRegistry,
   languagePairKey,
+  type DebugCallback,
+  type DebugEvent,
   type LanguagePair,
   type ModelRegistry,
   type ModelDescriptor,
   type ProgressCallback,
   type StaticModelRegistry,
+  type TranslationCapabilities,
   type TranslationEngine,
   type TranslationResult,
   type TranslateOptions,
@@ -35,6 +38,11 @@ const DTYPE_SUFFIX: Record<ResolvedDtype, string> = {
   bnb4: "_bnb4",
   q4f16: "_q4f16",
 };
+
+/** Returns a high-resolution timestamp in milliseconds. */
+function now(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
 
 interface ProgressEventPayload {
   phase: string;
@@ -71,11 +79,13 @@ export class TransformersEngine implements TranslationEngine {
   #worker: Worker | undefined;
   #disposed = false;
   #loadedPair: string | undefined;
+  #loadedModelId: string | undefined;
   #loadPromise: Promise<void> | undefined;
   #requestId = 0;
   readonly #pending = new Map<number, PendingRequest>();
   #resolvedDevice: ResolvedDevice | undefined;
   #resolvedDtype: ResolvedDtype | undefined;
+  #onDebug: DebugCallback | undefined;
 
   constructor(
     registry: ModelRegistry | StaticModelRegistry,
@@ -94,15 +104,15 @@ export class TransformersEngine implements TranslationEngine {
   }
 
   /**
-   * Returns the resolved device/dtype after the model has been loaded, or
-   * `{ device: "auto", dtype: "auto" }` before load (resolution is lazy
-   * because WebGPU probing is async).
+   * Returns the resolved capabilities (device, dtype, model info), or a
+   * minimal `{ engine }` before load.
    */
-  capabilities(): { device: ResolvedDevice | "auto"; dtype: ResolvedDtype | "auto" } {
-    if (this.#resolvedDevice && this.#resolvedDtype) {
-      return { device: this.#resolvedDevice, dtype: this.#resolvedDtype };
-    }
-    return { device: "auto", dtype: "auto" };
+  capabilities(): TranslationCapabilities {
+    const caps: TranslationCapabilities = { engine: this.id };
+    if (this.#resolvedDevice) caps.device = this.#resolvedDevice;
+    if (this.#resolvedDtype) caps.dtype = this.#resolvedDtype;
+    if (this.#loadedModelId) caps.modelId = this.#loadedModelId;
+    return caps;
   }
 
   /** Ob das Modell ohne Netzwerk verfügbar ist (Cache Storage). */
@@ -169,12 +179,13 @@ export class TransformersEngine implements TranslationEngine {
    * otherwise). This keeps the shared engine usable across pairs without
    * requiring a separate worker per pair.
    */
-  load(pair: LanguagePair, onProgress?: ProgressCallback): Promise<void> {
+  load(pair: LanguagePair, onProgress?: ProgressCallback, onDebug?: DebugCallback): Promise<void> {
     this.#assertNotDisposed();
     const key = languagePairKey(pair);
     if (this.#loadPromise && this.#loadedPair === key) {
       return this.#loadPromise;
     }
+    if (onDebug) this.#onDebug = onDebug;
     this.#loadPromise = this.#loadModel(pair, onProgress);
     this.#loadedPair = key;
     return this.#loadPromise;
@@ -197,6 +208,7 @@ export class TransformersEngine implements TranslationEngine {
       // Ignore — the worker may have already disposed or errored.
     }
     this.#loadedPair = undefined;
+    this.#loadedModelId = undefined;
   }
 
   /** Translates after loading. */
@@ -300,11 +312,43 @@ export class TransformersEngine implements TranslationEngine {
     } finally {
       this.#worker = undefined;
       this.#loadedPair = undefined;
+      this.#loadedModelId = undefined;
       this.#loadPromise = undefined;
       for (const pending of this.#pending.values()) {
         pending.reject(new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Engine disposed"));
       }
       this.#pending.clear();
+    }
+  }
+
+  /**
+   * Removes the cached model files for the given pair from browser Cache
+   * Storage. If the model is currently loaded for this pair, it is disposed
+   * in the worker first so that the files are not in use.
+   *
+   * Deletes the dtype-specific ONNX files (based on the resolved dtype) plus
+   * the shared tokenizer/config files — the same URLs that `isCached()` checks.
+   */
+  async removeModel(pair: LanguagePair): Promise<void> {
+    this.#assertNotDisposed();
+    const descriptor = await this.#requireModel(pair);
+    if (typeof caches === "undefined") {
+      return; // Non-browser environment — nothing to do.
+    }
+    // If the currently loaded pair matches, dispose it first.
+    if (this.#loadedPair === languagePairKey(pair)) {
+      await this.#disposeLoadedModel();
+      this.#loadPromise = undefined;
+    }
+    const urls = this.#cacheCheckUrls(descriptor);
+    // Iterate all Cache Storage caches — Transformers.js may use any cache
+    // name, and there are typically very few caches in an app.
+    const cacheNames = await caches.keys();
+    for (const cacheName of cacheNames) {
+      const cache = await caches.open(cacheName);
+      for (const url of urls) {
+        await cache.delete(url);
+      }
     }
   }
 
@@ -339,18 +383,33 @@ export class TransformersEngine implements TranslationEngine {
     await this.#disposeLoadedModel();
     // Resolve device/dtype asynchronously (WebGPU probing is async).
     const caps = await resolveDeviceDtype(this.#device, this.#dtype);
+    this.#debug({
+      type: "device-resolved",
+      timestamp: now(),
+      engine: this.id,
+      device: caps.device,
+      dtype: caps.dtype,
+    });
     let downloaded = false;
     try {
       await this.#sendLoad(modelId, caps.device, caps.dtype, onProgress, (downloadedFlag) => {
         downloaded = downloadedFlag;
       });
       this.#loadedPair = languagePairKey(pair);
+      this.#loadedModelId = modelId;
     } catch (error) {
       // WebGPU→WASM fallback: if device was "auto" and WebGPU was selected but
       // failed at runtime (adapter creation failed, fp16 not actually supported,
       // etc.), retry once with WASM + bnb4. Explicit "webgpu" requests do NOT
       // retry — the user asked for WebGPU specifically.
       if (this.#device === "auto" && caps.device === "webgpu") {
+        this.#debug({
+          type: "device-fallback",
+          timestamp: now(),
+          engine: this.id,
+          from: "webgpu",
+          to: "wasm",
+        });
         const fallback = { device: "wasm" as const, dtype: "bnb4" as const };
         try {
           downloaded = false;
@@ -358,6 +417,7 @@ export class TransformersEngine implements TranslationEngine {
             downloaded = f;
           });
           this.#loadedPair = languagePairKey(pair);
+          this.#loadedModelId = modelId;
           return;
         } catch (fallbackError) {
           this.#loadPromise = undefined;
@@ -431,10 +491,17 @@ export class TransformersEngine implements TranslationEngine {
   #ensureWorker(): Worker {
     if (!this.#worker) {
       this.#worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+      this.#debug({ type: "worker-spawn", timestamp: now(), engine: this.id });
       this.#worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
         this.#handleMessage(event.data);
       };
       this.#worker.onerror = (event: ErrorEvent) => {
+        this.#debug({
+          type: "worker-error",
+          timestamp: now(),
+          engine: this.id,
+          message: event.message || "Worker error",
+        });
         for (const pending of this.#pending.values()) {
           pending.reject(
             new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, event.message || "Worker error"),
@@ -444,6 +511,11 @@ export class TransformersEngine implements TranslationEngine {
       };
     }
     return this.#worker;
+  }
+
+  /** Emits a debug event when the onDebug callback is present. */
+  #debug(event: DebugEvent): void {
+    this.#onDebug?.(event);
   }
 
   #handleMessage(response: WorkerResponse): void {

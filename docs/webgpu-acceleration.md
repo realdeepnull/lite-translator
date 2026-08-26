@@ -20,9 +20,9 @@ const translator = await createTranslator({
 
 await translator.preload();
 console.log(engine.capabilities());
-// { device: "webgpu", dtype: "fp16" } — GPU available with shader-f16
-// { device: "webgpu", dtype: "fp32" } — GPU available, no shader-f16
-// { device: "wasm",    dtype: "bnb4" } — no GPU
+// { engine: "onnx", device: "webgpu", dtype: "fp16", modelId: "onnx-community/opus-mt-de-en" } — GPU with shader-f16
+// { engine: "onnx", device: "webgpu", dtype: "fp32", modelId: "..." } — GPU, no shader-f16
+// { engine: "onnx", device: "wasm",    dtype: "bnb4",  modelId: "..." } — no GPU
 ```
 
 The engine probes `navigator.gpu` and calls `requestAdapter()`. If an adapter
@@ -95,11 +95,13 @@ engine.capabilities(); // { device: "auto", dtype: "auto" }
 await translator.preload();
 
 // After load — concrete values
-engine.capabilities(); // { device: "webgpu", dtype: "fp16" }
+engine.capabilities(); // { engine: "onnx", device: "webgpu", dtype: "fp16", modelId: "..." }
 ```
 
-`capabilities()` is engine-only (on `TransformersEngine`). It is not part of
-the core `TranslationEngine` interface.
+`capabilities()` is available on both the `TransformersEngine` and the
+`Translator` (via `translator.capabilities()`). It returns a
+`TranslationCapabilities` object with optional `device`, `dtype`, and
+`modelId` fields. Before load, only `{ engine: "onnx" }` is returned.
 
 ## Browser support
 

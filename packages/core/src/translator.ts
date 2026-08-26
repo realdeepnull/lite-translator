@@ -4,13 +4,21 @@ import { getDefaultEngines } from "./engine.js";
 import { LiveSession } from "./live-session.js";
 import { TranslationStore } from "./store.js";
 import type {
+  DebugCallback,
+  DebugEvent,
   LanguagePair,
   LiveSessionOptions,
   ProgressCallback,
   TranslateOptions,
+  TranslationCapabilities,
   TranslationResult,
   TranslatorOptions,
 } from "./types.js";
+
+/** Returns a high-resolution timestamp in milliseconds. */
+function now(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
 
 /**
  * Ein Translator kapselt ein Sprachpaar und das gewählte Engine.
@@ -20,6 +28,7 @@ export class Translator {
   readonly #pair: LanguagePair;
   readonly #engine: TranslationEngine;
   readonly #onProgress: ProgressCallback | undefined;
+  readonly #onDebug: DebugCallback | undefined;
   #ready = false;
   #disposed = false;
   #loadPromise: Promise<void> | undefined;
@@ -33,6 +42,7 @@ export class Translator {
     this.#pair = { from: options.from, to: options.to };
     this.#engine = engine;
     this.#onProgress = options.onProgress;
+    this.#onDebug = options.onDebug;
   }
 
   /** Sprachpaar dieses Translators. */
@@ -44,9 +54,19 @@ export class Translator {
   preload(): Promise<void> {
     this.#assertNotDisposed();
     if (!this.#loadPromise) {
-      this.#loadPromise = this.#engine.load(this.#pair, this.#onProgress).then(() => {
-        this.#ready = true;
-      });
+      this.#debug({ type: "load-start", timestamp: now(), pair: this.#pair });
+      const start = now();
+      this.#loadPromise = this.#engine
+        .load(this.#pair, this.#onProgress, this.#onDebug)
+        .then(() => {
+          this.#ready = true;
+          this.#debug({
+            type: "load-done",
+            timestamp: now(),
+            pair: this.#pair,
+            durationMs: now() - start,
+          });
+        });
     }
     return this.#loadPromise;
   }
@@ -58,8 +78,24 @@ export class Translator {
     if (!this.#ready) {
       await this.preload();
     }
+    this.#debug({
+      type: "translate-start",
+      timestamp: now(),
+      pair: this.#pair,
+      inputLength: text.length,
+    });
+    const start = now();
     try {
-      return await this.#engine.translate(text, this.#pair, options);
+      const result = await this.#engine.translate(text, this.#pair, options);
+      this.#debug({
+        type: "translate-done",
+        timestamp: now(),
+        pair: this.#pair,
+        durationMs: now() - start,
+        inputLength: text.length,
+        outputLength: result.text.length,
+      });
+      return result;
     } catch (error) {
       if (error instanceof TranslatorError) {
         throw error;
@@ -81,8 +117,23 @@ export class Translator {
     if (!this.#ready) {
       await this.preload();
     }
+    this.#debug({
+      type: "batch-start",
+      timestamp: now(),
+      pair: this.#pair,
+      batchSize: texts.length,
+    });
+    const start = now();
     try {
-      return await this.#engine.translateBatch(texts, this.#pair, options);
+      const results = await this.#engine.translateBatch(texts, this.#pair, options);
+      this.#debug({
+        type: "batch-done",
+        timestamp: now(),
+        pair: this.#pair,
+        durationMs: now() - start,
+        batchSize: texts.length,
+      });
+      return results;
     } catch (error) {
       if (error instanceof TranslatorError) {
         throw error;
@@ -149,6 +200,13 @@ export class Translator {
     const all = [...this.#store.entries()];
     // Deduplicate values: identical source strings share one inference.
     const unique = [...new Set(all.map(([, value]) => value))];
+    this.#debug({
+      type: "translateall-start",
+      timestamp: now(),
+      pair: this.#pair,
+      keyCount: this.#store.size,
+    });
+    const start = now();
     try {
       const results = await this.#engine.translateBatch(unique, this.#pair, options);
       const valueToTranslation = new Map<string, string>();
@@ -161,6 +219,14 @@ export class Translator {
           this.#store.set(key, translated);
         }
       }
+      this.#debug({
+        type: "translateall-done",
+        timestamp: now(),
+        pair: this.#pair,
+        durationMs: now() - start,
+        keyCount: this.#store.size,
+        uniqueCount: unique.length,
+      });
     } catch (error) {
       if (error instanceof TranslatorError) {
         throw error;
@@ -202,6 +268,37 @@ export class Translator {
     return this.#engine.isCached(this.#pair);
   }
 
+  /**
+   * Returns the engine's resolved capabilities (device, dtype, model info),
+   * or `undefined` if the engine does not implement `capabilities()` or the
+   * model has not been loaded yet.
+   */
+  capabilities(): TranslationCapabilities | undefined {
+    return this.#engine.capabilities?.();
+  }
+
+  /**
+   * Removes the cached model files for this translator's language pair from
+   * browser Cache Storage. If the model is currently loaded, it is disposed
+   * first so that a subsequent `preload()` re-downloads the files.
+   *
+   * Throws `ENGINE_NOT_SUPPORTED` if the engine does not implement
+   * `removeModel()`.
+   */
+  async removeModel(): Promise<void> {
+    this.#assertNotDisposed();
+    if (!this.#engine.removeModel) {
+      throw new TranslatorError(
+        ERROR_CODES.ENGINE_NOT_SUPPORTED,
+        `Engine ${this.#engine.id} does not support removeModel`,
+      );
+    }
+    // Reset the loaded state so a subsequent preload() re-downloads.
+    this.#ready = false;
+    this.#loadPromise = undefined;
+    await this.#engine.removeModel(this.#pair);
+  }
+
   /** Releases engine resources. The translator cannot be used afterward. */
   async dispose(): Promise<void> {
     if (this.#disposed) {
@@ -220,8 +317,14 @@ export class Translator {
 
   #assertNotAborted(options?: TranslateOptions): void {
     if (options?.signal?.aborted) {
+      this.#debug({ type: "abort", timestamp: now(), pair: this.#pair });
       throw new TranslatorError(ERROR_CODES.TRANSLATION_FAILED, "Translation aborted");
     }
+  }
+
+  /** Emits a debug event when the onDebug callback is present. */
+  #debug(event: DebugEvent): void {
+    this.#onDebug?.(event);
   }
 }
 

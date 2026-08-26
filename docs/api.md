@@ -42,6 +42,7 @@ Erstellt einen `Translator` für ein Sprachpaar. Lädt **kein** Modell — erst 
 | `from` | `LanguageCode` | ja | Quellsprache (BCP-47-ähnlich, z.B. `"de"`) |
 | `to` | `LanguageCode` | ja | Zielsprache |
 | `onProgress` | `ProgressCallback` | nein | Callback für Modell-Download/Ladefortschritt |
+| `onDebug` | `DebugCallback` | nein | Callback für strukturierte Debug-Events (Lifecycle, Timing, Engine-Internals). Opt-in, kein Overhead wenn abwesend. Siehe [docs/debug-output.md](debug-output.md). |
 | `engines` | `TranslationEngine[]` | nein | Explizite Engine-Liste; ohne Angabe werden die global registrierten Defaults verwendet |
 
 **Beispiel**
@@ -125,6 +126,26 @@ Erstellt eine Live-Übersetzungs-Session für inkrementelle Eingabe (Chat, Speec
 
 `true`, wenn das Modell lokal gecacht ist (Offline-Nutzung möglich).
 
+##### `capabilities(): TranslationCapabilities | undefined`
+
+Gibt die aufgelösten Fähigkeiten des Engines zurück (Gerät, dtype, Modell-ID), oder `undefined`, wenn das Engine `capabilities()` nicht implementiert oder das Modell noch nicht geladen ist.
+
+**Rückgabe — `TranslationCapabilities`**
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `engine` | `string` | Engine-ID, z.B. `"onnx"` |
+| `device` | `string \| undefined` | Aufgelöstes Gerät, z.B. `"webgpu"` oder `"wasm"` |
+| `dtype` | `string \| undefined` | Aufgelöster Datentyp, z.B. `"fp16"` oder `"bnb4"` |
+| `modelId` | `string \| undefined` | Modell-ID des Engines |
+| `modelVersion` | `string \| undefined` | Modell-Version, falls bekannt |
+
+##### `removeModel(): Promise<void>`
+
+Entfernt die gecachten Modell-Dateien für dieses Sprachpaar aus dem Browser Cache Storage. Wenn das Modell aktuell geladen ist, wird es vorher disposed — ein nachfolgendes `preload()` lädt die Dateien neu herunter.
+
+Wirft `ENGINE_NOT_SUPPORTED`, wenn das Engine `removeModel()` nicht implementiert.
+
 ##### `dispose(): Promise<void>`
 
 Gibt Engine-Ressourcen frei. Der Translator kann danach nicht mehr verwendet werden.
@@ -140,9 +161,11 @@ interface TranslationEngine {
   readonly id: string;
   supports(pair: LanguagePair): boolean;
   isCached(pair: LanguagePair): Promise<boolean>;
-  load(pair: LanguagePair, onProgress?: ProgressCallback): Promise<void>;
+  load(pair: LanguagePair, onProgress?: ProgressCallback, onDebug?: DebugCallback): Promise<void>;
   translate(text: string, pair: LanguagePair, options?: TranslateOptions): Promise<TranslationResult>;
   translateBatch(texts: string[], pair: LanguagePair, options?: TranslateOptions): Promise<TranslationResult[]>;
+  capabilities?(): TranslationCapabilities | undefined;
+  removeModel?(pair: LanguagePair): Promise<void>;
   dispose(): Promise<void>;
 }
 ```
@@ -152,9 +175,11 @@ interface TranslationEngine {
 | `id` | Stabile Engine-ID, z.B. `"onnx"` |
 | `supports(pair)` | Prüft, ob das Engine das Sprachpaar unterstützt |
 | `isCached(pair)` | Prüft, ob das Modell lokal gecacht ist |
-| `load(pair, onProgress?)` | Lädt Modell und Runtime. Idempotent. |
+| `load(pair, onProgress?, onDebug?)` | Lädt Modell und Runtime. Idempotent. |
 | `translate(text, pair, options?)` | Übersetzt einen Text. Lädt lazy bei Bedarf. |
 | `translateBatch(texts, pair, options?)` | Übersetzt mehrere Texte. Ergebnis-Reihenfolge = Eingabe-Reihenfolge. Leere Strings bleiben leer. |
+| `capabilities?()` | Optional: Gibt die aufgelösten Fähigkeiten zurück (Gerät, dtype, Modell). |
+| `removeModel?(pair)` | Optional: Entfernt die gecachten Modell-Dateien für ein Sprachpaar. |
 | `dispose()` | Gibt Speicher und Runtime-Ressourcen frei |
 
 ---
@@ -374,7 +399,10 @@ Formatiert beliebigen Fehler in konsistenten String: `"Fehler: <code>: <message>
 | `ProgressEvent` | `{ phase: string; loaded: number; total: number; progress: number }` |
 | `ProgressCallback` | `(event: ProgressEvent) => void` |
 | `TranslateOptions` | `{ signal?: AbortSignal }` |
-| `TranslatorOptions` | `{ from, to, onProgress?, engines? }` |
+| `TranslatorOptions` | `{ from, to, onProgress?, onDebug?, engines? }` |
+| `TranslationCapabilities` | `{ engine: string; device?: string; dtype?: string; modelId?: string; modelVersion?: string }` |
+| `DebugEvent` | Discriminated Union — strukturierte Debug-Events (Lifecycle, Timing, Engine-Internals). Siehe [docs/debug-output.md](debug-output.md). |
+| `DebugCallback` | `(event: DebugEvent) => void` |
 | `LiveSessionOptions` | `{ debounce?: number }` |
 
 ---
