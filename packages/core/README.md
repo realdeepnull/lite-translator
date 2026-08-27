@@ -160,16 +160,6 @@ console.log(await translator.isCached()); // false
 | `isTranslatorError(err)` | Type guard for `TranslatorError` |
 | `withBatchFallback(engine)` | Wraps an engine without `translateBatch` with a sequential fallback |
 
-### Custom engines
-
-Implement the `TranslationEngine` interface (including `translateBatch`).
-Engines that only implement `translate()` can be wrapped with
-`withBatchFallback(engine)`.
-
-> **Breaking in 0.1.0:** `translateBatch` is now a required member of
-> `TranslationEngine`. Update custom engines or wrap them with
-> `withBatchFallback`.
-
 ## Links
 
 - [GitHub repository](https://github.com/realdeepnull/lite-translator)

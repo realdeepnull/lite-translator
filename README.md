@@ -8,12 +8,15 @@ Translation text never leaves the user's device — no cloud APIs, no remote ser
 
 ## Status
 
-**0.1.0** — all roadmap steps through Step 13 are ✅ done.
+**0.2.0** — additional production polish for debugging, model introspection and cache management.
 
 | Capability                                              | Status |
 | ------------------------------------------------------- | ------ |
 | Core API + engine interface                             | ✅     |
 | DE ↔ EN, FR ↔ EN, ES ↔ EN, IT ↔ EN, NL ↔ EN             | ✅     |
+| Debug output via `onDebug`                              | ✅     |
+| `capabilities()` engine introspection                   | ✅     |
+| Model cache cleanup via `removeModel()`                 | ✅     |
 | Lazy loading, progress events, offline cache            | ✅     |
 | Web Worker inference (UI stays responsive)              | ✅     |
 | Batch translation (`translateBatch`)                    | ✅     |
@@ -23,6 +26,13 @@ Translation text never leaves the user's device — no cloud APIs, no remote ser
 | Quality suite + benchmarks                              | ✅     |
 
 See the full [Roadmap](docs/ROADMAP.md) for details and the per-step history.
+
+## What's new in 0.2.0
+
+- Structured debug events with `onDebug` for lifecycle, timing and engine diagnostics.
+- `capabilities()` to inspect the resolved runtime setup (device, dtype, model metadata).
+- `removeModel()` to remove cached model artifacts from browser Cache Storage.
+- Better engine compatibility with optional debug hooks and non-breaking API extension.
 
 ## Demo
 
