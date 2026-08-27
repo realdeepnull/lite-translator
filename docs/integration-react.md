@@ -28,6 +28,9 @@ export const pool = new TranslatorPool({
       progressCallback?.(e);
     },
   },
+  onDebug: (event) => {
+    console.debug("[lite-translator]", event.type, event);
+  },
 });
 
 export function setProgressCallback(cb: ((e: ProgressEvent) => void) | null): void {
@@ -67,6 +70,7 @@ export function DemoPage() {
     setOutput("");
     try {
       const t = await getTranslator();
+      console.log(t.capabilities());
       const result = await t.translate(input);
       setOutput(result.text);
     } catch (err) {
@@ -92,6 +96,10 @@ export function DemoPage() {
 > `{ signal }`. When the signal is already aborted, the call rejects with
 > `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
 > translations when the user switches language mid-flight.
+>
+> **0.2.0 update:** `onDebug` is available as an opt-in lifecycle callback on
+> the pool/translator and `capabilities()` exposes the resolved engine state
+> (`device`, `dtype`, `modelId`, etc.) for runtime checks.
 
 ## Step 3: Batch translation
 

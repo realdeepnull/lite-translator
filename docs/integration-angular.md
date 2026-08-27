@@ -35,6 +35,9 @@ export class TranslationService {
         this.statusText.set(`Lade Modell … ${Math.round(e.progress * 100)}%`);
       }
     },
+    onDebug: (event) => {
+      console.debug("[lite-translator]", event.type, event);
+    },
   });
 
   /** Progress signal for the UI (0..1) */
@@ -97,6 +100,7 @@ export class TranslatorDemoComponent {
     this.output.set("");
     try {
       const t = await this.getTranslator();
+      console.log(t.capabilities());
       const result = await t.translate(this.input());
       this.output.set(result.text);
     } catch (err) {
@@ -112,6 +116,10 @@ export class TranslatorDemoComponent {
 > `{ signal }`. When the signal is already aborted, the call rejects with
 > `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
 > translations when the user switches language mid-flight.
+>
+> **0.2.0 update:** `onDebug` is available as an opt-in lifecycle callback on
+> the pool/translator and `capabilities()` exposes the resolved engine state
+> (`device`, `dtype`, `modelId`, etc.) for runtime checks.
 
 ## Step 3: Register in the router
 

@@ -26,8 +26,8 @@ Create a project directory:
 ```sh
 mkdir my-html-demo && cd my-html-demo
 npm init -y
-npm install ../lite-translator/lite-translator-core-0.1.0.tgz \
-            ../lite-translator/lite-translator-engine-onnx-0.1.0.tgz
+npm install ../lite-translator/lite-translator-core-0.2.0.tgz \
+            ../lite-translator/lite-translator-engine-onnx-0.2.0.tgz
 ```
 
 Create `index.html`:
@@ -59,12 +59,19 @@ Create `index.html`:
         onProgress: (e) => {
           if (Number.isFinite(e.progress)) bar.value = e.progress;
         },
+        onDebug: (event) => {
+          console.debug("[lite-translator]", event.type, event);
+        },
       });
 
       document.getElementById("run").addEventListener("click", async () => {
         out.value = "Translating…";
         try {
           const translator = await pool.switchTo("de", "en");
+
+          // Optional: inspect runtime capabilities after the model is loaded
+          console.log(translator.capabilities());
+
           const result = await translator.translate(src.value);
           out.value = result.text;
           bar.value = 1;
@@ -81,6 +88,10 @@ Create `index.html`:
 > `{ signal }`. When the signal is already aborted, the call rejects with
 > `TRANSLATION_FAILED` ("Translation aborted"). Use this to cancel
 > translations when the user switches language mid-flight.
+>
+> **0.2.0 update:** `onDebug` is available as an opt-in lifecycle callback on
+> `TranslatorPool`/`Translator` creation and `capabilities()` exposes the
+> resolved engine state (`device`, `dtype`, `modelId`, etc.) for runtime checks.
 
 Start a static server (ES modules require HTTP, not `file://`):
 
