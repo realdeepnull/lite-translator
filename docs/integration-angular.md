@@ -120,6 +120,13 @@ export class TranslatorDemoComponent {
 > **0.2.0 update:** `onDebug` is available as an opt-in lifecycle callback on
 > the pool/translator and `capabilities()` exposes the resolved engine state
 > (`device`, `dtype`, `modelId`, etc.) for runtime checks.
+>
+> **0.2.1 update:** `TranslatorPool` now forwards `onDebug` to every translator
+> it creates (not just `onProgress`), and the new `inference-start` /
+> `inference-done` events bracket the model call inside the worker
+> (`requestId`, `batchSize`, `inputChars`, `outputChars`, `durationMs`) —
+> pure inference time vs. worker/chunking overhead becomes visible. See
+> [debug-output.md](debug-output.md).
 
 ## Step 3: Register in the router
 

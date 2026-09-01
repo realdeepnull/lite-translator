@@ -1,6 +1,6 @@
 import { createTranslator, type Translator } from "./translator.js";
 import { languagePairKey } from "./registry.js";
-import type { ProgressCallback } from "./types.js";
+import type { DebugCallback, ProgressCallback } from "./types.js";
 import type { TranslationEngine } from "./engine.js";
 
 /** Options for {@link TranslatorPool}. */
@@ -12,6 +12,13 @@ export interface TranslatorPoolOptions {
   engines?: TranslationEngine[];
   /** Optional progress callback forwarded to every created translator. */
   onProgress?: ProgressCallback;
+  /**
+   * Optional debug callback forwarded to every created translator. A single
+   * callback collects the structured `DebugEvent` lifecycle/timing/engine
+   * events across all cached language pairs. Opt-in — zero overhead when
+   * absent.
+   */
+  onDebug?: DebugCallback;
   /**
    * Maximum number of cached translators. When exceeded, the oldest entry
    * (LRU eviction via Map insertion order) is disposed. Default: unlimited.
@@ -45,11 +52,13 @@ export class TranslatorPool {
   readonly #cache = new Map<string, Translator>();
   readonly #engines: TranslationEngine[] | undefined;
   readonly #onProgress: ProgressCallback | undefined;
+  readonly #onDebug: DebugCallback | undefined;
   readonly #maxSize: number | undefined;
 
   constructor(options: TranslatorPoolOptions = {}) {
     this.#engines = options.engines;
     this.#onProgress = options.onProgress;
+    this.#onDebug = options.onDebug;
     this.#maxSize = options.maxSize;
   }
 
@@ -73,6 +82,7 @@ export class TranslatorPool {
       to,
       ...(this.#engines !== undefined && { engines: this.#engines }),
       ...(this.#onProgress !== undefined && { onProgress: this.#onProgress }),
+      ...(this.#onDebug !== undefined && { onDebug: this.#onDebug }),
     });
     this.#cache.set(key, translator);
     this.#enforceMaxSize();

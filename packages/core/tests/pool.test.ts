@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { TranslatorPool } from "../src/pool.js";
-import type { TranslationEngine, LanguagePair, TranslationResult } from "../src/index.js";
+import type {
+  TranslationEngine,
+  LanguagePair,
+  TranslationResult,
+  DebugEvent,
+} from "../src/index.js";
 
 function createMockEngine(id = "onnx", pairs: string[] = ["de-en", "en-de", "fr-en"]) {
   const supported = new Set(pairs);
@@ -130,6 +135,31 @@ describe("TranslatorPool", () => {
     await t.preload();
     const loadCalls = (engine.load as ReturnType<typeof vi.fn>).mock.calls;
     expect(typeof loadCalls[0]?.[1]).toBe("function");
+    await pool.dispose();
+  });
+
+  it("onDebug wird an alle erzeugten Translatoren weitergereicht", async () => {
+    const engine = createMockEngine();
+    const events: DebugEvent[] = [];
+    const pool = new TranslatorPool({
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    const t1 = await pool.switchTo("de", "en");
+    await t1.preload();
+    const t2 = await pool.switchTo("en", "de");
+    await t2.preload();
+    // Beide Paare emiteten load-start/load-done über denselben Callback.
+    const types = events.map((e) => e.type);
+    expect(types.filter((t) => t === "load-start")).toHaveLength(2);
+    expect(types.filter((t) => t === "load-done")).toHaveLength(2);
+    const pairs = new Set(
+      events
+        .filter((e) => e.type === "load-done")
+        .map((e) => (e.type === "load-done" ? `${e.pair.from}-${e.pair.to}` : "")),
+    );
+    expect(pairs.has("de-en")).toBe(true);
+    expect(pairs.has("en-de")).toBe(true);
     await pool.dispose();
   });
 

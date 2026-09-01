@@ -1,6 +1,6 @@
 {
   "name": "@lite-translator/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Privacy-friendly, local, offline-capable translation core API for the browser.",
   "type": "module",
   "main": "./dist/index.js",

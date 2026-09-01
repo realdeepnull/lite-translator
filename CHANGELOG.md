@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-08-31
+
+### Added
+
+- **Debug events: model I/O timing + pool forwarding** (`@lite-translator/core`,
+  `@lite-translator/engine-onnx`):
+  - New `DebugEvent` types `inference-start` / `inference-done` bracket the
+    model call inside the worker (`requestId`, `batchSize`, `inputChars`,
+    `outputChars`, `durationMs`) — pure inference time vs. worker/chunking
+    overhead becomes visible.
+  - `TranslatorPool` now accepts `onDebug` and forwards it to every created
+    translator (previously only `onProgress`).
+  Both opt-in via `onDebug`, zero overhead when absent. See
+  [docs/debug-output.md](docs/debug-output.md).
+
+### Changed
+
+- **WASM is the default device** (`@lite-translator/engine-onnx`):
+  `createOnnxEngine()` now runs on `wasm`/`bnb4` and no longer probes
+  `navigator.gpu` — predictable latency and identical behavior across
+  environments. Autoregressive OPUS-MT decoding over many small sequential
+  ops often runs as fast or faster on WASM than WebGPU for typical inputs,
+  and the first WebGPU run additionally pays runtime shader compilation.
+  WebGPU remains opt-in via `device: "auto"` (probe + WASM fallback) or
+  `device: "webgpu"`. Engines with an explicit `device` are unaffected.
+
+### Performance
+
+- **Padding-optimized batch chunking** (`@lite-translator/engine-onnx`):
+  `translateBatch` now sorts inputs stably by text length (ascending) and
+  forms chunks with a character budget (`MAX_BATCH_CHARS = 1200`) in
+  addition to `MAX_BATCH = 32`. ONNX pads every sequence in a chunk to the
+  longest one — sorting groups similar lengths so short UI labels are no
+  longer padded alongside long sentences. The result order still matches
+  the input order; empty strings are preserved. Benchmark: **28-text batch
+  61 s → 11 s (5.5× faster)**.
+- **Decoder token limit in the worker** (`@lite-translator/engine-onnx`):
+  the worker now passes `max_new_tokens: 512` to the Transformers.js
+  pipeline. Without a limit, the OPUS-MT/MarianMT decoder keeps running on
+  short inputs (single words, UI labels) and hallucinates — repetitions,
+  punctuation streams, empty output — which also inflates tail latency.
+  Restores the limit that was accidentally lost in 0.1.x (purely internal,
+  no API change).
+- **Single notify per `translateAll()`** (`@lite-translator/core`): the new
+  `TranslationStore.setMany(entries)` method sets all translated values at
+  once and notifies subscribers exactly **once** instead of once per key.
+  `translateAll()` uses this batch-update path — framework bindings
+  (React `useSyncExternalStore`, Vue watchers, Angular signals) re-evaluate
+  once instead of N times. Additive API extension, no breaking change.
+- **Memoized WebGPU adapter probe** (`@lite-translator/engine-onnx`):
+  `requestAdapter()` now runs only once per page lifetime (promise
+  memoization) instead of up to twice per `load()`. Public signatures of
+  `detectWebGpu()` / `isFp16Supported()` unchanged.
+- **Parallel Cache Storage access** (`@lite-translator/engine-onnx`):
+  `isCached()` checks all model files in parallel via `Promise.all` instead
+  of sequentially; `removeModel()` deletes in parallel per cache. Reduces
+  latency across the 4–6 model files per pair.
+
 ## [0.2.0] — 2026-08-26
 
 ### Added

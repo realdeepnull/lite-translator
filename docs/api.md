@@ -1,26 +1,26 @@
-# API Referenz
+# API Reference
 
-Dieses Dokument beschreibt die öffentliche API von **Lite Translator** — aufgeteilt in das Core-Package (`@lite-translator/core`) und das ONNX-Engine-Package (`@lite-translator/engine-onnx`).
+This document describes the public API of **Lite Translator** — split into the core package (`@lite-translator/core`) and the ONNX engine package (`@lite-translator/engine-onnx`).
 
 ---
 
-## Inhaltsverzeichnis
+## Table of Contents
 
 - [Core (`@lite-translator/core`)](#core-lite-translatorcore)
   - [createTranslator](#createtranslator)
   - [Translator](#translator)
   - [TranslationEngine (Interface)](#translationengine-interface)
-  - [Engine-Registrierung](#engine-registrierung)
+  - [Engine registration](#engine-registration)
   - [TranslationStore](#translationstore)
   - [TranslatorPool](#translatorpool)
   - [LiveSession](#livesession)
   - [Model Registry](#model-registry)
   - [Emitter](#emitter)
   - [Errors](#errors)
-  - [Typen](#typen)
+  - [Types](#types)
 - [Engine ONNX (`@lite-translator/engine-onnx`)](#engine-onnx-lite-translatorengine-onnx)
   - [createOnnxEngine](#createonnxengine)
-  - [WebGPU-Hilfsfunktionen](#webgpu-hilfsfunktionen)
+  - [WebGPU helper functions](#webgpu-helper-functions)
   - [Default Registry & Model IDs](#default-registry--model-ids)
 
 ---
@@ -33,19 +33,19 @@ Dieses Dokument beschreibt die öffentliche API von **Lite Translator** — aufg
 function createTranslator(options: TranslatorOptions): Promise<Translator>
 ```
 
-Erstellt einen `Translator` für ein Sprachpaar. Lädt **kein** Modell — erst beim ersten `translate()`/`preload()`. Wirft `LANGUAGE_PAIR_NOT_SUPPORTED`, wenn kein Engine das Paar unterstützt.
+Creates a `Translator` for a language pair. Loads **no** model — only on the first `translate()`/`preload()`. Throws `LANGUAGE_PAIR_NOT_SUPPORTED` when no engine supports the pair.
 
-**Parameter — `TranslatorOptions`**
+**Parameters — `TranslatorOptions`**
 
-| Feld | Typ | Pflicht | Beschreibung |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| `from` | `LanguageCode` | ja | Quellsprache (BCP-47-ähnlich, z.B. `"de"`) |
-| `to` | `LanguageCode` | ja | Zielsprache |
-| `onProgress` | `ProgressCallback` | nein | Callback für Modell-Download/Ladefortschritt |
-| `onDebug` | `DebugCallback` | nein | Callback für strukturierte Debug-Events (Lifecycle, Timing, Engine-Internals). Opt-in, kein Overhead wenn abwesend. Siehe [docs/debug-output.md](debug-output.md). |
-| `engines` | `TranslationEngine[]` | nein | Explizite Engine-Liste; ohne Angabe werden die global registrierten Defaults verwendet |
+| `from` | `LanguageCode` | yes | Source language (BCP-47-like, e.g. `"de"`) |
+| `to` | `LanguageCode` | yes | Target language |
+| `onProgress` | `ProgressCallback` | no | Callback for model download/load progress |
+| `onDebug` | `DebugCallback` | no | Callback for structured debug events (lifecycle, timing, engine internals). Opt-in, zero overhead when absent. See [docs/debug-output.md](debug-output.md). |
+| `engines` | `TranslationEngine[]` | no | Explicit engine list; when omitted, the globally registered defaults are used |
 
-**Beispiel**
+**Example**
 
 ```ts
 import { createTranslator } from "@lite-translator/core";
@@ -59,102 +59,102 @@ console.log(result.text); // "Hello world"
 
 ### Translator
 
-Repräsentiert ein gebundenes Sprachpaar und das gewählte Engine. Wird über `createTranslator()` erstellt.
+Represents a bound language pair and the chosen engine. Created via `createTranslator()`.
 
-#### Eigenschaften
+#### Properties
 
-| Property | Typ | Beschreibung |
+| Property | Type | Description |
 |---|---|---|
-| `pair` | `LanguagePair` | Sprachpaar `{ from, to }` (Kopie) |
+| `pair` | `LanguagePair` | Language pair `{ from, to }` (copy) |
 
-#### Methoden
+#### Methods
 
 ##### `preload(): Promise<void>`
 
-Lädt das Modell vorab. Idempotent — mehrfacher Aufruf führt zu nur einem Download.
+Preloads the model. Idempotent — multiple calls result in only one download.
 
 ##### `translate(text: string, options?: TranslateOptions): Promise<TranslationResult>`
 
-Übersetzt einen einzelnen Text. Lädt das Modell bei Bedarf automatisch.
+Translates a single text. Loads the model automatically when needed.
 
-| Parameter | Typ | Beschreibung |
+| Parameter | Type | Description |
 |---|---|---|
-| `text` | `string` | Zu übersetzender Text |
-| `options.signal` | `AbortSignal` | Abbruch-Signal; bei bereits abgebrochenem Signal wird `TRANSLATION_FAILED` geworfen |
+| `text` | `string` | Text to translate |
+| `options.signal` | `AbortSignal` | Abort signal; when already aborted, `TRANSLATION_FAILED` is thrown |
 
-**Rückgabe — `TranslationResult`**
+**Return value — `TranslationResult`**
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |---|---|---|
-| `text` | `string` | Übersetzte Text |
-| `from` | `LanguageCode` | Quellsprache |
-| `to` | `LanguageCode` | Zielsprache |
-| `engine` | `string` | ID des verwendeten Engines (z.B. `"onnx"`) |
+| `text` | `string` | Translated text |
+| `from` | `LanguageCode` | Source language |
+| `to` | `LanguageCode` | Target language |
+| `engine` | `string` | ID of the engine used (e.g. `"onnx"`) |
 
 ##### `translateBatch(texts: string[], options?: TranslateOptions): Promise<TranslationResult[]>`
 
-Übersetzt mehrere Texte in einem Aufruf (nativer Batch, falls das Engine dies unterstützt). Die Reihenfolge der Ergebnisse entspricht der Eingabereihenfolge; leere Strings bleiben leer.
+Translates multiple texts in a single call (native batching when the engine supports it). The result order matches the input order; empty strings stay empty.
 
 ##### `t(): (key: string, text?: string) => string`
 
-Gibt eine gebundene `t()`-Funktion für i18n-Stil-Batchübersetzung zurück.
+Returns a bound `t()` function for i18n-style batch translation.
 
-- `t("my.key", "Hallo")` → registriert den Key und gibt den Originaltext synchron zurück.
-- `t("my.key")` → gibt den aktuellen Wert zurück (Übersetzung nach `translateAll()`, Original davor, oder der Key selbst als Fallback).
+- `t("my.key", "Hallo")` → registers the key and returns the original text synchronously.
+- `t("my.key")` → returns the current value (translation after `translateAll()`, original before, or the key itself as fallback).
 
 ##### `store(): TranslationStore | undefined`
 
-Gibt den reaktiven Store hinter `t()` zurück. Wird lazily beim ersten `t()`-Aufruf erstellt. Frameworks (Angular, React, Vue) subscriben darauf für reaktive Template-Updates.
+Returns the reactive store behind `t()`. Created lazily on the first `t()` call. Frameworks (Angular, React, Vue) subscribe to it for reactive template updates.
 
 ##### `translateAll(options?: TranslateOptions): Promise<void>`
 
-Übersetzt alle über `t()` registrierten Strings in einem einzigen `translateBatch()`-Aufruf. Nach Auflösung wird der Store mit den übersetzten Werten aktualisiert und alle Subscriber benachrichtigt. Identische Werte werden vor der Inferenz dedupliziert. No-op, wenn nichts registriert ist.
+Translates all strings registered via `t()` in a single `translateBatch()` call. After resolving, the store is updated with the translated values and all subscribers are notified. Identical values are deduplicated before inference. No-op when nothing is registered.
 
 ##### `createLiveSession(options?: LiveSessionOptions): LiveSession`
 
-Erstellt eine Live-Übersetzungs-Session für inkrementelle Eingabe (Chat, Speech-to-Text).
+Creates a live translation session for incremental input (chat, speech-to-text).
 
-| Parameter | Typ | Standard | Beschreibung |
+| Parameter | Type | Default | Description |
 |---|---|---|---|
-| `options.debounce` | `number` | `250` | Debounce in Millisekunden |
+| `options.debounce` | `number` | `250` | Debounce in milliseconds |
 
 ##### `isReady(): boolean`
 
-`true`, wenn das Modell geladen und sofort einsatzbereit ist.
+`true` when the model is loaded and immediately ready to use.
 
 ##### `isCached(): Promise<boolean>`
 
-`true`, wenn das Modell lokal gecacht ist (Offline-Nutzung möglich).
+`true` when the model is cached locally (offline use possible).
 
 ##### `capabilities(): TranslationCapabilities | undefined`
 
-Gibt die aufgelösten Fähigkeiten des Engines zurück (Gerät, dtype, Modell-ID), oder `undefined`, wenn das Engine `capabilities()` nicht implementiert oder das Modell noch nicht geladen ist.
+Returns the engine's resolved capabilities (device, dtype, model ID), or `undefined` when the engine does not implement `capabilities()` or the model has not been loaded yet.
 
-**Rückgabe — `TranslationCapabilities`**
+**Return value — `TranslationCapabilities`**
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |---|---|---|
-| `engine` | `string` | Engine-ID, z.B. `"onnx"` |
-| `device` | `string \| undefined` | Aufgelöstes Gerät, z.B. `"webgpu"` oder `"wasm"` |
-| `dtype` | `string \| undefined` | Aufgelöster Datentyp, z.B. `"fp16"` oder `"bnb4"` |
-| `modelId` | `string \| undefined` | Modell-ID des Engines |
-| `modelVersion` | `string \| undefined` | Modell-Version, falls bekannt |
+| `engine` | `string` | Engine ID, e.g. `"onnx"` |
+| `device` | `string \| undefined` | Resolved device, e.g. `"webgpu"` or `"wasm"` |
+| `dtype` | `string \| undefined` | Resolved data type, e.g. `"fp16"` or `"bnb4"` |
+| `modelId` | `string \| undefined` | Engine's model ID |
+| `modelVersion` | `string \| undefined` | Model version, if known |
 
 ##### `removeModel(): Promise<void>`
 
-Entfernt die gecachten Modell-Dateien für dieses Sprachpaar aus dem Browser Cache Storage. Wenn das Modell aktuell geladen ist, wird es vorher disposed — ein nachfolgendes `preload()` lädt die Dateien neu herunter.
+Removes the cached model files for this language pair from browser Cache Storage. When the model is currently loaded, it is disposed first — a subsequent `preload()` re-downloads the files.
 
-Wirft `ENGINE_NOT_SUPPORTED`, wenn das Engine `removeModel()` nicht implementiert.
+Throws `ENGINE_NOT_SUPPORTED` when the engine does not implement `removeModel()`.
 
 ##### `dispose(): Promise<void>`
 
-Gibt Engine-Ressourcen frei. Der Translator kann danach nicht mehr verwendet werden.
+Releases engine resources. The translator cannot be used afterward.
 
 ---
 
 ### TranslationEngine (Interface)
 
-Engine-unabhängiges Interface. Das Core kennt keine konkrete Implementierung.
+Engine-independent interface. The core knows no concrete implementation.
 
 ```ts
 interface TranslationEngine {
@@ -170,81 +170,83 @@ interface TranslationEngine {
 }
 ```
 
-| Methode | Beschreibung |
+| Method | Description |
 |---|---|
-| `id` | Stabile Engine-ID, z.B. `"onnx"` |
-| `supports(pair)` | Prüft, ob das Engine das Sprachpaar unterstützt |
-| `isCached(pair)` | Prüft, ob das Modell lokal gecacht ist |
-| `load(pair, onProgress?, onDebug?)` | Lädt Modell und Runtime. Idempotent. |
-| `translate(text, pair, options?)` | Übersetzt einen Text. Lädt lazy bei Bedarf. |
-| `translateBatch(texts, pair, options?)` | Übersetzt mehrere Texte. Ergebnis-Reihenfolge = Eingabe-Reihenfolge. Leere Strings bleiben leer. |
-| `capabilities?()` | Optional: Gibt die aufgelösten Fähigkeiten zurück (Gerät, dtype, Modell). |
-| `removeModel?(pair)` | Optional: Entfernt die gecachten Modell-Dateien für ein Sprachpaar. |
-| `dispose()` | Gibt Speicher und Runtime-Ressourcen frei |
+| `id` | Stable engine ID, e.g. `"onnx"` |
+| `supports(pair)` | Checks whether the engine supports the language pair |
+| `isCached(pair)` | Checks whether the model is cached locally |
+| `load(pair, onProgress?, onDebug?)` | Loads model and runtime. Idempotent. |
+| `translate(text, pair, options?)` | Translates a text. Lazily loads when needed. |
+| `translateBatch(texts, pair, options?)` | Translates multiple texts. Result order = input order. Empty strings stay empty. |
+| `capabilities?()` | Optional: returns the resolved capabilities (device, dtype, model). |
+| `removeModel?(pair)` | Optional: removes the cached model files for a language pair. |
+| `dispose()` | Frees memory and runtime resources |
 
 ---
 
-### Engine-Registrierung
+### Engine registration
 
 #### `registerDefaultEngine(engine: TranslationEngine): void`
 
-Registriert ein Engine global als Default. Duplikate (gleiche `id`) werden ignoriert. Ermöglicht Convenience-Packages, ein Engine beim Import zu registrieren.
+Registers an engine globally as a default. Duplicates (same `id`) are ignored. Enables convenience packages to register an engine on import.
 
 #### `getDefaultEngines(): readonly TranslationEngine[]`
 
-Gibt eine Kopie der global registrierten Default-Engines zurück.
+Returns a copy of the globally registered default engines.
 
 #### `withBatchFallback(engine: TranslationEngine): TranslationEngine`
 
-Wrappt ein Engine, sodass `translateBatch` immer verfügbar ist. Wenn das Engine `translateBatch` bereits implementiert, wird es unverändert zurückgegeben. Andernfalls wird ein Proxy zurückgegeben, dessen `translateBatch` sequenziell `translate()` für jeden Text aufruft.
+Wraps an engine so that `translateBatch` is always available. When the engine already implements `translateBatch`, it is returned unchanged. Otherwise a proxy is returned whose `translateBatch` sequentially calls `translate()` for each text.
 
 ---
 
 ### TranslationStore
 
-Framework-neutraler reaktiver Store für i18n-Stil-Übersetzungs-Keys. Komponenten registrieren Strings via `register(key, text)` und lesen den aktuellen Wert via `get(key)`.
+Framework-neutral reactive store for i18n-style translation keys. Components register strings via `register(key, text)` and read the current value via `get(key)`.
 
-| Methode | Signatur | Beschreibung |
+| Method | Signature | Description |
 |---|---|---|
-| `register` | `(key: string, text: string): string` | Registriert Key mit Originaltext. Gibt den Text synchron zurück. |
-| `get` | `(key: string): string \| undefined` | Aktueller Wert; `undefined` falls nie registriert. |
-| `set` | `(key: string, translated: string): void` | Setzt übersetzten Wert (intern durch `translateAll()`). |
-| `original` | `(key: string): string \| undefined` | Originaltext (ändert sich nie nach `register`). |
-| `has` | `(key: string): boolean` | Ob ein Key registriert ist. |
-| `entries` | `(): IterableIterator<[string, string]>` | Alle `[key, value]`-Paare (Einfügereihenfolge). |
-| `keys` | `(): IterableIterator<string>` | Alle registrierten Keys. |
-| `size` | `number` (getter) | Anzahl registrierter Keys. |
-| `subscribe` | `(listener: () => void): () => void` | Subscribt auf Änderungen. Gibt Unsubscribe-Funktion zurück. |
-| `snapshot` | `(): Record<string, string>` | Gefrorene Kopie des aktuellen Zustands. Gecacht — wiederholte Aufrufe ohne Änderung liefern dieselbe Referenz (für `===`-Vergleich in React `useSyncExternalStore`). |
-| `clear` | `(): void` | Entfernt alle registrierten Keys. |
+| `register` | `(key: string, text: string): string` | Registers a key with its original text. Returns the text synchronously. |
+| `get` | `(key: string): string \| undefined` | Current value; `undefined` when never registered. |
+| `set` | `(key: string, translated: string): void` | Sets a translated value (internally by `translateAll()`). |
+| `setMany` | `(entries: Iterable<[string, string]>): void` | Sets multiple translated values at once and notifies subscribers **exactly once** (instead of once per key). The batch-update path of `translateAll()`. An empty iterable does not notify. |
+| `original` | `(key: string): string \| undefined` | Original text (never changes after `register`). |
+| `has` | `(key: string): boolean` | Whether a key is registered. |
+| `entries` | `(): IterableIterator<[string, string]>` | All `[key, value]` pairs (insertion order). |
+| `keys` | `(): IterableIterator<string>` | All registered keys. |
+| `size` | `number` (getter) | Number of registered keys. |
+| `subscribe` | `(listener: () => void): () => void` | Subscribes to changes. Returns an unsubscribe function. |
+| `snapshot` | `(): Record<string, string>` | Frozen copy of the current state. Cached — repeated calls without a change return the same reference (for `===` comparison in React `useSyncExternalStore`). |
+| `clear` | `(): void` | Removes all registered keys. |
 
 ---
 
 ### TranslatorPool
 
-Wiederverwendbarer Pool von Translatoren, keyed nach Sprachpaar. Ersetzt das ad-hoc `Map<string, Translator>`-Muster. `switchTo(from, to)` gibt sofort einen gecachten Translator zurück oder erstellt einen neuen.
+Reusable pool of translators, keyed by language pair. Replaces the ad-hoc `Map<string, Translator>` pattern. `switchTo(from, to)` returns a cached translator immediately or creates a new one.
 
 #### `TranslatorPoolOptions`
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |---|---|---|
-| `engines` | `TranslationEngine[]` | Explizite Engine-Liste; ohne Angabe globale Defaults |
-| `onProgress` | `ProgressCallback` | An alle erstellten Translatoren weitergereicht |
-| `maxSize` | `number` | Max. Anzahl gecachter Translatoren; LRU-Eviction bei Überschreitung. Default: unbegrenzt |
+| `engines` | `TranslationEngine[]` | Explicit engine list; global defaults when omitted |
+| `onProgress` | `ProgressCallback` | Forwarded to every created translator |
+| `onDebug` | `DebugCallback` | Forwarded to every created translator — one callback collects the `DebugEvent`s of all cached language pairs. Opt-in, zero overhead when absent. |
+| `maxSize` | `number` | Max. number of cached translators; LRU eviction when exceeded. Default: unlimited |
 
-#### Methoden
+#### Methods
 
-| Methode | Signatur | Beschreibung |
+| Method | Signature | Description |
 |---|---|---|
-| `switchTo` | `(from: string, to: string): Promise<Translator>` | Gibt Translator für das Paar zurück (gecacht oder neu erstellt). |
-| `get` | `(from: string, to: string): Translator \| undefined` | Gecachter Translator oder `undefined`; erstellt keinen neuen. |
-| `current` | `(): Translator \| undefined` | Der aktuell gecachte Translator. |
-| `cachedPairs` | `(): string[]` | Alle gecachten Sprachpaar-Keys, z.B. `["de-en"]`. |
-| `size` | `number` (getter) | Anzahl gecachter Translatoren. |
-| `disposePair` | `(from, to): Promise<void>` | Disposed einen einzelnen Translator und entfernt ihn. |
-| `dispose` | `(): Promise<void>` | Disposed alle gecachten Translatoren und leert den Pool. |
+| `switchTo` | `(from: string, to: string): Promise<Translator>` | Returns the translator for the pair (cached or newly created). |
+| `get` | `(from: string, to: string): Translator \| undefined` | Cached translator or `undefined`; does not create a new one. |
+| `current` | `(): Translator \| undefined` | The currently cached translator. |
+| `cachedPairs` | `(): string[]` | All cached language-pair keys, e.g. `["de-en"]`. |
+| `size` | `number` (getter) | Number of cached translators. |
+| `disposePair` | `(from, to): Promise<void>` | Disposes a single translator and removes it. |
+| `dispose` | `(): Promise<void>` | Disposes all cached translators and empties the pool. |
 
-**Beispiel**
+**Example**
 
 ```ts
 import { TranslatorPool } from "@lite-translator/core";
@@ -252,7 +254,7 @@ import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
 const pool = new TranslatorPool({ engines: [createOnnxEngine()], maxSize: 3 });
 const t1 = await pool.switchTo("de", "en");
-const t2 = await pool.switchTo("de", "en"); // dieselbe Instanz wie t1
+const t2 = await pool.switchTo("de", "en"); // same instance as t1
 await pool.dispose();
 ```
 
@@ -260,46 +262,46 @@ await pool.dispose();
 
 ### LiveSession
 
-Live-Übersetzungs-Session für inkrementelle Eingabe (Chat-Typing, Speech-to-Text). Segmentiert Eingabe an Satzgrenzen, cacht Übersetzungen vollständiger Sätze und übersetzt nur den noch wachsenden Tail neu. Veraltete Ergebnisse werden automatisch verworfen.
+Live translation session for incremental input (chat typing, speech-to-text). Segments input at sentence boundaries, caches translations of completed sentences, and only re-translates the still-growing tail. Outdated results are discarded automatically.
 
 #### Events (`LiveSessionEvents`)
 
-| Event | Payload | Beschreibung |
+| Event | Payload | Description |
 |---|---|---|
-| `translation` | `LiveTranslationEvent` | Neue (ggf. partielle) Übersetzung verfügbar |
-| `error` | `TranslatorError` | Übersetzung fehlgeschlagen |
-| `dispose` | `—` | Session wurde disposed |
+| `translation` | `LiveTranslationEvent` | New (possibly partial) translation available |
+| `error` | `TranslatorError` | Translation failed |
+| `dispose` | `—` | Session was disposed |
 
-#### Methoden
+#### Methods
 
-| Methode | Signatur | Beschreibung |
+| Method | Signature | Description |
 |---|---|---|
-| `on` | `(event, listener): () => void` | Subscribt auf Event. Gibt Unsubscribe-Funktion zurück. |
-| `once` | `(event, listener): () => void` | Subscribt für einmalige Auslösung. |
-| `off` | `(event, listener): void` | Entfernt einen Listener. |
-| `update` | `(text: string): void` | Aktualisiert Eingabe und plant debounced Übersetzung. Identische aufeinanderfolgende Eingaben werden übersprungen. Leerstring leert die Session. |
-| `clear` | `(): void` | Leert Cache und Pending-Status. Emitiert `translation` mit leerem Inhalt. |
-| `dispose` | `(): void` | Bricht Pending ab und gibt Emitter frei. |
-| `disposed` | `boolean` (getter) | Ob die Session disposed ist. |
+| `on` | `(event, listener): () => void` | Subscribes to an event. Returns an unsubscribe function. |
+| `once` | `(event, listener): () => void` | Subscribes for a single invocation. |
+| `off` | `(event, listener): void` | Removes a listener. |
+| `update` | `(text: string): void` | Updates the input and schedules a debounced translation. Identical consecutive inputs are skipped. An empty string clears the session. |
+| `clear` | `(): void` | Clears cache and pending state. Emits `translation` with empty content. |
+| `dispose` | `(): void` | Cancels pending work and releases the emitter. |
+| `disposed` | `boolean` (getter) | Whether the session is disposed. |
 
 #### `LiveTranslationEvent`
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |---|---|---|
-| `text` | `string` | Vollständige Übersetzung (alle kompletten Segmente + Partial) |
-| `source` | `string` | Original-Eingabe, unverändert |
-| `partial` | `string` | Übersetzung des letzten, noch wachsenden Segments (leer, wenn vollständig) |
-| `segments` | `LiveSegment[]` | Alle Segmente mit Übersetzung und `complete`-Flag |
+| `text` | `string` | Full translation (all complete segments + partial) |
+| `source` | `string` | The original input, verbatim |
+| `partial` | `string` | Translation of the last, still-growing segment (empty when fully complete) |
+| `segments` | `LiveSegment[]` | All segments with translation and `complete` flag |
 
 #### `LiveSegment`
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |---|---|---|
-| `source` | `string` | Originaltext des Segments |
-| `translation` | `string` | Übersetzung (leer bis übersetzt) |
-| `complete` | `boolean` | Ob das Segment an einer Satzgrenze endet (gecacht, stabil) |
+| `source` | `string` | Original text of the segment |
+| `translation` | `string` | Translation (empty until translated) |
+| `complete` | `boolean` | Whether the segment ends at a sentence boundary (cached, stable) |
 
-**Beispiel**
+**Example**
 
 ```ts
 const live = translator.createLiveSession({ debounce: 250 });
@@ -309,36 +311,36 @@ live.update("Hallo wie geht");
 
 #### `splitSegments(input: string): { complete: string[]; partial: string }`
 
-Exportierte Hilfsfunktion: Splittet Eingabe in vollständige Segmente (an Satzgrenzen `.`, `!`, `?`, `;`, Newlines) und einen Partial-Tail.
+Exported helper function: splits input into complete segments (at sentence boundaries `.`, `!`, `?`, `;`, newlines) and a partial tail.
 
 ---
 
 ### Model Registry
 
-#### Typen
+#### Types
 
-| Typ | Beschreibung |
+| Type | Description |
 |---|---|
-| `ModelFile` | `{ url, size?, sha256? }` — downloadbare Modelldatei |
-| `ModelDescriptor` | `{ id, version, engine, engineModelId?, files, metadata? }` — Modellbeschreibung |
+| `ModelFile` | `{ url, size?, sha256? }` — downloadable model file |
+| `ModelDescriptor` | `{ id, version, engine, engineModelId?, files, metadata? }` — model description |
 | `ModelRegistry` | Interface: `getModel(pair): Promise<ModelDescriptor \| undefined>` |
-| `StaticModelRegistry` | Erweitert `ModelRegistry` um `getModelSync(pair)` für synchrone `supports()` |
+| `StaticModelRegistry` | Extends `ModelRegistry` with `getModelSync(pair)` for synchronous `supports()` |
 
-#### Funktionen
+#### Functions
 
-| Funktion | Signatur | Beschreibung |
+| Function | Signature | Description |
 |---|---|---|
-| `createStaticRegistry` | `(models: Record<string, ModelDescriptor>): StaticModelRegistry` | Erzeugt einfache statische Registry aus einem Record. |
-| `isStaticRegistry` | `(registry: ModelRegistry): registry is StaticModelRegistry` | Type Guard für synchrone Registry. |
-| `languagePairKey` | `(pair: LanguagePair): string` | Sprachpaar → Key, z.B. `"de-en"`. |
+| `createStaticRegistry` | `(models: Record<string, ModelDescriptor>): StaticModelRegistry` | Creates a simple static registry from a record. |
+| `isStaticRegistry` | `(registry: ModelRegistry): registry is StaticModelRegistry` | Type guard for synchronous registries. |
+| `languagePairKey` | `(pair: LanguagePair): string` | Language pair → key, e.g. `"de-en"`. |
 | `parseLanguagePairKey` | `(key: string): LanguagePair` | Key → `{ from, to }`. |
-| `preloadRegistry` | `(registry: ModelRegistry): Promise<StaticModelRegistry>` | Lädt asynchrone Registry in statische. |
+| `preloadRegistry` | `(registry: ModelRegistry): Promise<StaticModelRegistry>` | Loads an async registry into a static one. |
 
 ---
 
 ### Emitter
 
-Minimaler, framework-neutraler, typisierter Event-Emitter. Pure TypeScript, funktioniert in Node und Browser.
+Minimal, framework-neutral, typed event emitter. Pure TypeScript, works in Node and the browser.
 
 ```ts
 interface Emitter<Events extends ListenerMap> {
@@ -352,7 +354,7 @@ interface Emitter<Events extends ListenerMap> {
 
 #### `createEmitter<Events>(): Emitter<Events>`
 
-Erzeugt neuen typisierten Emitter. Listener werden in Subskriptionsreihenfolge aufgerufen; `emit()` ist synchron.
+Creates a new typed emitter. Listeners are called in subscription order; `emit()` is synchronous.
 
 ---
 
@@ -360,48 +362,48 @@ Erzeugt neuen typisierten Emitter. Listener werden in Subskriptionsreihenfolge a
 
 #### `ERROR_CODES`
 
-Stabile Fehlercodes für Konsumenten:
+Stable error codes for consumers:
 
-| Code | Beschreibung |
+| Code | Description |
 |---|---|
-| `MODEL_NOT_AVAILABLE` | Modell nicht verfügbar |
-| `MODEL_DOWNLOAD_FAILED` | Modell-Download fehlgeschlagen |
-| `MODEL_LOAD_FAILED` | Modell-Laden fehlgeschlagen |
-| `LANGUAGE_PAIR_NOT_SUPPORTED` | Kein Engine unterstützt das Sprachpaar |
-| `ENGINE_NOT_SUPPORTED` | Engine nicht unterstützt |
-| `OUT_OF_MEMORY` | Nicht genügend Speicher |
-| `TRANSLATION_FAILED` | Übersetzung fehlgeschlagen (auch bei Abort) |
-| `OFFLINE_MODEL_MISSING` | Modell offline nicht vorhanden |
+| `MODEL_NOT_AVAILABLE` | Model not available |
+| `MODEL_DOWNLOAD_FAILED` | Model download failed |
+| `MODEL_LOAD_FAILED` | Model loading failed |
+| `LANGUAGE_PAIR_NOT_SUPPORTED` | No engine supports the language pair |
+| `ENGINE_NOT_SUPPORTED` | Engine not supported |
+| `OUT_OF_MEMORY` | Out of memory |
+| `TRANSLATION_FAILED` | Translation failed (also on abort) |
+| `OFFLINE_MODEL_MISSING` | Model not present offline |
 
 #### `TranslatorError extends Error`
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |---|---|---|
-| `code` | `ErrorCode` | Fehlercode aus `ERROR_CODES` |
-| `name` | `string` | Stets `"TranslatorError"` |
+| `code` | `ErrorCode` | Error code from `ERROR_CODES` |
+| `name` | `string` | Always `"TranslatorError"` |
 
 #### `isTranslatorError(error: unknown): error is TranslatorError`
 
-Type Guard für `TranslatorError`.
+Type guard for `TranslatorError`.
 
 #### `formatTranslatorError(err: unknown): string`
 
-Formatiert beliebigen Fehler in konsistenten String: `"Fehler: <code>: <message>"` für `TranslatorError`, sonst `"Fehler: <message>"`.
+Formats any error into a consistent string: `"Fehler: <code>: <message>"` for `TranslatorError`, otherwise `"Fehler: <message>"`.
 
 ---
 
-### Typen
+### Types
 
-| Typ | Beschreibung |
+| Type | Description |
 |---|---|
-| `LanguageCode` | `string` — BCP-47-ähnlich ohne Region, z.B. `"de"` |
+| `LanguageCode` | `string` — BCP-47-like without region, e.g. `"de"` |
 | `LanguagePair` | `{ from: LanguageCode; to: LanguageCode }` |
 | `ProgressEvent` | `{ phase: string; loaded: number; total: number; progress: number }` |
 | `ProgressCallback` | `(event: ProgressEvent) => void` |
 | `TranslateOptions` | `{ signal?: AbortSignal }` |
 | `TranslatorOptions` | `{ from, to, onProgress?, onDebug?, engines? }` |
 | `TranslationCapabilities` | `{ engine: string; device?: string; dtype?: string; modelId?: string; modelVersion?: string }` |
-| `DebugEvent` | Discriminated Union — strukturierte Debug-Events (Lifecycle, Timing, Engine-Internals). Siehe [docs/debug-output.md](debug-output.md). |
+| `DebugEvent` | Discriminated union — structured debug events (lifecycle, timing, engine internals). See [docs/debug-output.md](debug-output.md). |
 | `DebugCallback` | `(event: DebugEvent) => void` |
 | `LiveSessionOptions` | `{ debounce?: number }` |
 
@@ -415,47 +417,47 @@ Formatiert beliebigen Fehler in konsistenten String: `"Fehler: <code>: <message>
 function createOnnxEngine(options?: OnnxEngineOptions): TransformersEngine
 ```
 
-Erstellt ein lokales ONNX-Engine (Transformers.js + Web Worker). Default: de-en / en-de (und weitere) mit quantisierten OPUS-MT-Modellen vom HF Hub.
+Creates a local ONNX engine (Transformers.js + Web Worker). Default: de-en / en-de (and more) with quantized OPUS-MT models from the HF Hub.
 
 #### `OnnxEngineOptions`
 
-| Feld | Typ | Standard | Beschreibung |
+| Field | Type | Default | Description |
 |---|---|---|---|
-| `registry` | `StaticModelRegistry` | `createDefaultRegistry(defaultModelIds)` | Custom statische Registry |
-| `models` | `Record<string, string>` | `defaultModelIds` | Überschreibt die Sprachpaar→Modell-ID-Mapping |
-| `device` | `OnnxDevice` | `"auto"` | Device-Modus: `"auto"` (WebGPU falls verfügbar, sonst WASM), `"webgpu"` (erfordert WebGPU), `"wasm"` |
-| `dtype` | `OnnxDtype` | geräteabhängig | Dtype-Override; Default: `"bnb4"` auf WebGPU und WASM |
+| `registry` | `StaticModelRegistry` | `createDefaultRegistry(defaultModelIds)` | Custom static registry |
+| `models` | `Record<string, string>` | `defaultModelIds` | Overrides the language-pair→model-ID mapping |
+| `device` | `OnnxDevice` | `"wasm"` | Device mode: `"wasm"` (default — predictable CPU inference), `"auto"` (WebGPU if available, else WASM), `"webgpu"` (requires WebGPU) |
+| `dtype` | `OnnxDtype` | device-dependent | Dtype override; default: `"bnb4"` on WebGPU and WASM |
 
-**Beispiel**
+**Example**
 
 ```ts
 import { createOnnxEngine } from "@lite-translator/engine-onnx";
 import { registerDefaultEngine } from "@lite-translator/core";
 
-registerDefaultEngine(createOnnxEngine({ device: "auto" }));
+registerDefaultEngine(createOnnxEngine()); // wasm/bnb4 (default)
 ```
 
 ---
 
-### WebGPU-Hilfsfunktionen
+### WebGPU helper functions
 
-| Funktion | Signatur | Beschreibung |
+| Function | Signature | Description |
 |---|---|---|
-| `detectWebGpu` | `(): Promise<boolean>` | Prüft `navigator.gpu` und fordert Adapter an. `false` bei Fehler/Nichtverfügbarkeit. |
-| `isFp16Supported` | `(): Promise<boolean>` | Prüft, ob WebGPU-Adapter `shader-f16` unterstützt. |
-| `resolveDeviceDtype` | — | Löst Device + Dtype anhand der Capabilities auf. |
+| `detectWebGpu` | `(): Promise<boolean>` | Probes `navigator.gpu` and requests an adapter. `false` on error/unavailability. |
+| `isFp16Supported` | `(): Promise<boolean>` | Checks whether the WebGPU adapter supports `shader-f16`. |
+| `resolveDeviceDtype` | — | Resolves device + dtype based on capabilities. |
 
-#### Typen
+#### Types
 
-| Typ | Werte | Beschreibung |
+| Type | Values | Description |
 |---|---|---|
-| `OnnxDevice` | `"auto" \| "webgpu" \| "wasm"` | Device-Auswahlmodus |
-| `OnnxDtype` | `"fp16" \| "fp32" \| "bnb4" \| "q4f16" \| "auto"` | Dtype-Optionen |
-| `ResolvedDevice` | `"webgpu" \| "wasm"` | Konkretes Device nach Auflösung (nie `"auto"`) |
-| `ResolvedDtype` | `"fp16" \| "fp32" \| "bnb4" \| "q4f16"` | Konkreter Dtype nach Auflösung (nie `"auto"`) |
-| `ResolvedCapabilities` | `{ device: ResolvedDevice; dtype: ResolvedDtype }` | Aufgelöste Capabilities |
+| `OnnxDevice` | `"auto" \| "webgpu" \| "wasm"` | Device selection mode |
+| `OnnxDtype` | `"fp16" \| "fp32" \| "bnb4" \| "q4f16" \| "auto"` | Dtype options |
+| `ResolvedDevice` | `"webgpu" \| "wasm"` | Concrete device after resolution (never `"auto"`) |
+| `ResolvedDtype` | `"fp16" \| "fp32" \| "bnb4" \| "q4f16"` | Concrete dtype after resolution (never `"auto"`) |
+| `ResolvedCapabilities` | `{ device: ResolvedDevice; dtype: ResolvedDtype }` | Resolved capabilities |
 
-> **Hinweis:** `"bnb4"` ist der bewährte quantisierte Dtype auf onnxruntime-web v4 (`q8`/`int8`/`uint8`/`q4` triggern MatMulNBits-Bug; `q4f16` ebenfalls — mit Vorsicht verwenden).
+> **Note:** `"bnb4"` is the proven quantized dtype on onnxruntime-web v4 (`q8`/`int8`/`uint8`/`q4` trigger the MatMulNBits bug; `q4f16` as well — use with caution).
 
 ---
 
@@ -467,12 +469,12 @@ registerDefaultEngine(createOnnxEngine({ device: "auto" }));
 const ENGINE_ID = "onnx";
 ```
 
-Engine-ID; wird in `TranslationResult.engine` verwendet.
+Engine ID; used in `TranslationResult.engine`.
 
 #### `defaultModelIds: Record<string, string>`
 
-Default-Sprachmodelle (quantisierte OPUS-MT-Modelle vom HF Hub). Schlüssel sind Sprachpaar-Keys (`"de-en"`, `"en-de"`, `"fr-en"`, `"en-fr"`, `"es-en"`, `"en-es"`, `"it-en"`, `"en-it"`, `"nl-en"`, `"en-nl"`). Können via `createOnnxEngine({ models })` überschrieben oder über `VITE_MODEL_ID_*`-Env-Variablen angepasst werden.
+Default language models (quantized OPUS-MT models from the HF Hub). Keys are language-pair keys (`"de-en"`, `"en-de"`, `"fr-en"`, `"en-fr"`, `"es-en"`, `"en-es"`, `"it-en"`, `"en-it"`, `"nl-en"`, `"en-nl"`). Can be overridden via `createOnnxEngine({ models })` or customized through `VITE_MODEL_ID_*` environment variables.
 
 #### `createDefaultRegistry(modelIds: Record<string, string>): StaticModelRegistry`
 
-Erstellt die statische Model-Registry für die übergebenen Paar→Modell-ID-Einträge.
+Creates the static model registry for the given pair→model-ID entries.

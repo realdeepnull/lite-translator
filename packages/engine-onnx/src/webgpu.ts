@@ -1,9 +1,9 @@
 /**
  * WebGPU capability detection and device/dtype resolution.
  *
- * The engine defaults to `device: "auto"`, which probes `navigator.gpu` and
- * selects WebGPU when an adapter is available (with fp16 when `shader-f16` is
- * supported), falling back to WASM + bnb4 otherwise.
+ * The engine defaults to `device: "wasm"`. WebGPU is opt-in via
+ * `device: "auto"`, which probes `navigator.gpu` and selects WebGPU when an
+ * adapter is available, falling back to WASM + bnb4 otherwise.
  */
 
 /** Device selection modes for the ONNX engine. */
@@ -50,34 +50,48 @@ function getNavigatorGpu(): NavigatorGPU | undefined {
 }
 
 /**
+ * Memoized adapter probe. `requestAdapter()` spawns a real GPU process and
+ * can take tens of milliseconds — probing once per page lifetime (instead of
+ * twice on every `load()`) keeps model loads fast. The promise is cached
+ * including rejections, so a failed probe never retries per call.
+ */
+let adapterProbe: Promise<{ available: boolean; fp16: boolean }> | undefined;
+
+function probeAdapter(): Promise<{ available: boolean; fp16: boolean }> {
+  if (!adapterProbe) {
+    adapterProbe = (async () => {
+      const gpu = getNavigatorGpu();
+      if (!gpu) return { available: false, fp16: false };
+      try {
+        const adapter = await gpu.requestAdapter();
+        if (!adapter) return { available: false, fp16: false };
+        return { available: true, fp16: adapter.features.has("shader-f16") };
+      } catch {
+        return { available: false, fp16: false };
+      }
+    })();
+  }
+  return adapterProbe;
+}
+
+/**
  * Checks whether WebGPU is available by probing `navigator.gpu` and
  * requesting an adapter. Returns `false` on any error or absence.
+ * The probe is memoized — repeated calls do not re-request an adapter.
  */
 export async function detectWebGpu(): Promise<boolean> {
-  const gpu = getNavigatorGpu();
-  if (!gpu) return false;
-  try {
-    const adapter = await gpu.requestAdapter();
-    return adapter !== null;
-  } catch {
-    return false;
-  }
+  const { available } = await probeAdapter();
+  return available;
 }
 
 /**
  * Checks whether the WebGPU adapter supports `shader-f16`.
  * Returns `false` when WebGPU is unavailable or the feature is missing.
+ * The probe is memoized — repeated calls do not re-request an adapter.
  */
 export async function isFp16Supported(): Promise<boolean> {
-  const gpu = getNavigatorGpu();
-  if (!gpu) return false;
-  try {
-    const adapter = await gpu.requestAdapter();
-    if (!adapter) return false;
-    return adapter.features.has("shader-f16");
-  } catch {
-    return false;
-  }
+  const { fp16 } = await probeAdapter();
+  return fp16;
 }
 
 /**

@@ -7,10 +7,17 @@
  *  → { kind: "translate", id, text }
  *  → { kind: "dispose", id }
  *  ← { kind: "progress", id, event }          (during load only)
+ *  ← { kind: "capabilities", id, device, dtype } (response to load)
  *  ← { kind: "loaded", id }                    (response to load)
+ *  ← { kind: "inference-start", id, batchSize, inputChars }  (before model call)
+ *  ← { kind: "inference-done", id, batchSize, inputChars, outputChars, durationMs }
  *  ← { kind: "result", id, text }              (response to translate)
  *  ← { kind: "disposed", id }                  (response to dispose)
  *  ← { kind: "error", id, message }            (on errors)
+ *
+ * The inference-* events are debug timing instrumentation: they bracket the
+ * actual model invocation so consumers can tell worker roundtrip overhead
+ * apart from pure model inference time.
  *
  * The worker instance is tied to one model ID: load() throws for another modelId.
  */
@@ -25,9 +32,20 @@ env.allowLocalModels = false;
 env.allowRemoteModels = true;
 
 interface PipelineInstance {
-  (text: string | string[]): Promise<Array<{ translation_text: string }>>;
+  (text: string | string[], options?: { max_new_tokens?: number }): Promise<
+    Array<{ translation_text: string }>
+  >;
   dispose?(): Promise<void>;
 }
+
+/**
+ * Default token limit for the decoder. Without `max_new_tokens`, the
+ * OPUS-MT/MarianMT decoder keeps running on short inputs (single words,
+ * UI labels) and hallucinates — repetitions, punctuation streams, empty
+ * output — which also inflates tail latency. 512 covers full sentences
+ * while bounding runaway generation.
+ */
+const DEFAULT_MAX_NEW_TOKENS = 512;
 
 let activeModelId: string | undefined;
 let activeDevice: string | undefined;
@@ -154,8 +172,21 @@ async function handleTranslate(id: number, payload: string | string[]): Promise<
   // Transformers.js pipe accepts string | string[]; normalize single text to a
   // one-element array so the output shape is always Array<{ translation_text }>.
   const input = isBatch ? payload : [payload];
-  const output = (await pipe(input)) as Array<{ translation_text: string }>;
+  const batchSize = input.length;
+  const inputChars = input.reduce((sum, text) => sum + text.length, 0);
+  // Debug timing instrumentation: emit inference-start right before the input
+  // is handed to the model, inference-done right after the output arrives.
+  post({ kind: "inference-start", id, batchSize, inputChars });
+  const start = performance.now();
+  // Cap decoder generation to prevent runaway generation on short inputs
+  // (hallucinated repetitions/punctuation) and bound tail latency.
+  const output = (await pipe(input, {
+    max_new_tokens: DEFAULT_MAX_NEW_TOKENS,
+  })) as Array<{ translation_text: string }>;
+  const durationMs = performance.now() - start;
   const texts = output.map((o) => o?.translation_text ?? "");
+  const outputChars = texts.reduce((sum, text) => sum + text.length, 0);
+  post({ kind: "inference-done", id, batchSize, inputChars, outputChars, durationMs });
   if (isBatch) {
     post({ kind: "result", id, texts });
   } else {
@@ -179,6 +210,15 @@ type Response =
   | { kind: "progress"; id: number; event: ProgressEvent }
   | { kind: "capabilities"; id: number; device: string; dtype: string }
   | { kind: "loaded"; id: number }
+  | { kind: "inference-start"; id: number; batchSize: number; inputChars: number }
+  | {
+      kind: "inference-done";
+      id: number;
+      batchSize: number;
+      inputChars: number;
+      outputChars: number;
+      durationMs: number;
+    }
   | { kind: "result"; id: number; text: string }
   | { kind: "result"; id: number; texts: string[] }
   | { kind: "disposed"; id: number }

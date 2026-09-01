@@ -325,6 +325,24 @@ describe("Translator.translateAll", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it("benachrichtigt Subscriber genau einmal bei mehreren Keys (setMany)", async () => {
+    const engine = createMockEngine();
+    const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
+    const t = translator.t();
+    t("a", "Eins");
+    t("b", "Zwei");
+    t("c", "Drei");
+    const store = translator.store()!;
+    const listener = vi.fn();
+    store.subscribe(listener);
+    await translator.translateAll();
+    // 3 Keys → trotzdem genau 1 Notify aus translateAll (nicht 3)
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(t("a")).toBe("[en] Eins");
+    expect(t("b")).toBe("[en] Zwei");
+    expect(t("c")).toBe("[en] Drei");
+  });
+
   it("lässt Leerstrings unverändert durch (Engine-Verhalten)", async () => {
     const engine = createMockEngine();
     const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });

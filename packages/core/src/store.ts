@@ -58,6 +58,27 @@ export class TranslationStore {
     this.#markDirty();
   }
 
+  /**
+   * Sets multiple translated values at once and notifies subscribers a
+   * single time (instead of once per key like repeated `set()` calls).
+   *
+   * This is the batch-update path used by `Translator.translateAll()`: with
+   * N registered keys, subscribers (React `useSyncExternalStore`, Vue
+   * watchers, Angular signals) are re-evaluated once instead of N times.
+   *
+   * Later entries win when a key appears more than once.
+   */
+  setMany(entries: Iterable<[string, string]>): void {
+    let changed = false;
+    for (const [key, translated] of entries) {
+      this.#entries.set(key, translated);
+      changed = true;
+    }
+    if (changed) {
+      this.#markDirty();
+    }
+  }
+
   /** Original text for a key (never changes after register). */
   original(key: string): string | undefined {
     return this.#originals.get(key);

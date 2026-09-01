@@ -28,6 +28,22 @@ const translator = await createTranslator({
 The callback is **opt-in** — when `onDebug` is omitted, there is zero
 overhead (no events are constructed or emitted).
 
+### With a TranslatorPool
+
+`TranslatorPool` accepts the same `onDebug` option and forwards it to every
+translator it creates — a single callback collects the events of all cached
+language pairs:
+
+```ts
+const pool = new TranslatorPool({
+  engines: [engine],
+  onDebug: (event: DebugEvent) => {
+    console.debug(`[${event.type}]`, event);
+  },
+});
+const translator = await pool.switchTo("de", "en");
+```
+
 ## Event types
 
 Every event carries a `timestamp` (from `performance.now()`) and a `type`
@@ -60,6 +76,35 @@ discriminator. The events are grouped into three categories:
 | `worker-error` | `engine`, `message`, `timestamp` | When the worker reports an error |
 | `device-resolved` | `engine`, `device`, `dtype`, `timestamp` | After device/dtype resolution (e.g. `"wasm"`/`"bnb4"`) |
 | `device-fallback` | `engine`, `from`, `to`, `timestamp` | When WebGPU fails and the engine falls back to WASM |
+| `inference-start` | `engine`, `requestId`, `batchSize`, `inputChars`, `timestamp` | When input is handed to the model inside the worker |
+| `inference-done` | `engine`, `requestId`, `batchSize`, `inputChars`, `outputChars`, `durationMs`, `timestamp` | When the model returns its output |
+
+### Model I/O timing (`inference-start` / `inference-done`)
+
+These two events bracket the **actual model invocation** inside the worker,
+so you can tell pure inference time apart from worker roundtrip and batching
+overhead:
+
+```ts
+// single translate()
+await translator.translate("Hallo Welt");
+// inference-start { requestId: 3, batchSize: 1, inputChars: 10 }
+// inference-done  { requestId: 3, batchSize: 1, inputChars: 10, outputChars: 11, durationMs: 45 }
+
+// batched translateBatch() — one pair of events per worker roundtrip
+// (chunks larger than MAX_BATCH / MAX_BATCH_CHARS produce several pairs)
+await translator.translateBatch(["Hallo Welt", "Guten Morgen"]);
+// inference-start { requestId: 4, batchSize: 2, inputChars: 22 }
+// inference-done  { requestId: 4, batchSize: 2, inputChars: 22, outputChars: 23, durationMs: 60 }
+```
+
+- `requestId` correlates the pair (the same worker request ID as used
+  internally) — useful when multiple roundtrips interleave.
+- `durationMs` is the wall-clock time the model took (tokenization +
+  generation + detokenization), measured inside the worker.
+- The difference between `translate-done.durationMs` and the sum of the
+  matching `inference-done.durationMs` values is the overhead added by
+  batching/chunking and the worker roundtrip.
 
 ## Usage example: timing panel
 
@@ -100,5 +145,7 @@ type DebugEvent =
   | { type: "worker-spawn"; timestamp: number; engine: string }
   | { type: "worker-error"; timestamp: number; engine: string; message: string }
   | { type: "device-resolved"; timestamp: number; engine: string; device: string; dtype: string }
-  | { type: "device-fallback"; timestamp: number; engine: string; from: string; to: string };
+  | { type: "device-fallback"; timestamp: number; engine: string; from: string; to: string }
+  | { type: "inference-start"; timestamp: number; engine: string; requestId: number; batchSize: number; inputChars: number }
+  | { type: "inference-done"; timestamp: number; engine: string; requestId: number; batchSize: number; inputChars: number; outputChars: number; durationMs: number };
 ```

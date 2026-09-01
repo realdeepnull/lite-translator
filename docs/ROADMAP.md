@@ -194,7 +194,7 @@ Use the GPU for faster inference when the browser supports WebGPU, with automati
 - benchmark comparison: WebGPU vs. WASM inference latency (`BENCH_RESULT_WEBGPU` line, skipped in CI)
 
 ```ts
-// Automatic device selection (default)
+// Automatic device selection (opt-in — the engine default is "wasm")
 const engine = createOnnxEngine({
   device: "auto", // "webgpu" if available, else "wasm"
 });
@@ -204,7 +204,7 @@ await translator.preload();
 console.log(engine.capabilities()); // { device: "webgpu", dtype: "bnb4" } or { device: "wasm", dtype: "bnb4" }
 ```
 
-- `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — default `"auto"`
+- `createOnnxEngine({ device: "auto" | "webgpu" | "wasm" })` — default `"wasm"`; WebGPU is opt-in via `"auto"`/`"webgpu"`
 
 ---
 
@@ -359,7 +359,7 @@ Done:
 
 ### Step 16 — Developer Experience (v0.2)
 
-**Status:** 🟡 Partial
+**Status:** ✅ Done
 
 Better debug output, cache management and integration.
 
@@ -374,7 +374,21 @@ Done:
 
 ---
 
-### Step 17 — Multi-Model Worker
+### Step 17 — Performance Update (v0.2.1)
+
+**Status:** ✅ Done
+
+Benchmark: 28-text batch **61 s → 11 s (5.5× faster)**; single-text translations unchanged.
+
+- batches are grouped by text length, so short UI labels are no longer padded alongside long sentences
+- decoder token limit prevents hallucinated repetitions and inflated latency on short inputs
+- `translateAll()` updates all keys with a single notification — UI frameworks re-render once instead of once per key
+- WebGPU support is probed once per page load instead of on every model load
+- model cache checks and cleanups run in parallel
+
+---
+
+### Step 18 — Multi-Model Worker
 
 **Status:** ⬜ Open
 
@@ -404,7 +418,7 @@ Planned:
 
 ---
 
-### Step 18 — Evaluate Smart Path (v0.3)
+### Step 19 — Evaluate Smart Path
 
 **Status:** ⬜ Open
 
@@ -417,7 +431,7 @@ An optional Smart Path as a separate local engine.
 
 ---
 
-### Step 19 — Release 1.0
+### Step 20 — Release 1.0
 
 **Status:** ⬜ Open
 

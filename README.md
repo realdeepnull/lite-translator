@@ -8,7 +8,7 @@ Translation text never leaves the user's device — no cloud APIs, no remote ser
 
 ## Status
 
-**0.2.0** — additional production polish for debugging, model introspection and cache management.
+**0.2.1** — performance release: 5.5× faster batch translation, WASM by default, single-notify i18n updates.
 
 | Capability                                              | Status |
 | ------------------------------------------------------- | ------ |
@@ -20,12 +20,21 @@ Translation text never leaves the user's device — no cloud APIs, no remote ser
 | Lazy loading, progress events, offline cache            | ✅     |
 | Web Worker inference (UI stays responsive)              | ✅     |
 | Batch translation (`translateBatch`)                    | ✅     |
-| WebGPU acceleration with WASM fallback                  | ✅     |
+| WASM by default, opt-in WebGPU acceleration             | ✅     |
 | Live translation (incremental, debounced)               | ✅     |
 | i18n-style batch translation (`t()` + `translateAll()`) | ✅     |
 | Quality suite + benchmarks                              | ✅     |
 
 See the full [Roadmap](docs/ROADMAP.md) for details and the per-step history.
+
+## What's new in 0.2.1
+
+- **5.5× faster batch translation** — translating many texts at once now takes a fraction of the time.
+- **Runs predictably everywhere** — the engine uses the CPU by default.
+- **Reliable output on short texts** — single words and UI labels no longer produce endless or nonsensical output, and respond faster.
+- **Smoother UI updates** — translating all registered strings at once refreshes the page a single time instead of once per string.
+- **Faster model checks** — checking whether a model is already downloaded, and detecting GPU support, got noticeably quicker.
+- **Clearer performance insights** — new debug events show how long the model itself takes, separate from other overhead.
 
 ## What's new in 0.2.0
 

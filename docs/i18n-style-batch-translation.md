@@ -86,7 +86,8 @@ scoped to the translator instance (one store per language pair).
 | --- | --- |
 | `register(key, text)` | Stores `key → text` as the original value, notifies subscribers, returns `text`. |
 | `get(key)` | Returns the current value (`undefined` if never registered). |
-| `set(key, translated)` | Overwrites the value with a translation (internal use by `translateAll()`). |
+| `set(key, translated)` | Overwrites the value with a translation and notifies subscribers (single update). |
+| `setMany(entries)` | Batch version of `set()`: sets multiple `[key, translated]` pairs and notifies subscribers **exactly once** — the batch-update path used by `translateAll()`. An empty iterable does not notify. |
 | `original(key)` | Returns the original text (never changes after `register`). |
 | `entries()` | Iterator over all `[key, value]` pairs (insertion order). |
 | `subscribe(listener)` | Registers a change listener, returns an unsubscribe function. |
@@ -120,9 +121,13 @@ See the integration guides linked at the top for full code examples.
    once.
 3. **Call** `engine.translateBatch(uniqueValues, pair, options)` — exactly
    one inference call for the whole app.
-4. **Map back** each unique value to its translation, then update every key
-   that originally held that value.
-5. **Notify** all subscribers so frameworks re-render.
+4. **Map back** each unique value to its translation, then batch-update every
+   key that originally held that value via `store.setMany()` — one write for
+   all keys.
+5. **Notify** subscribers **exactly once** — `setMany()` fires a single
+   notification for the whole update, so framework bindings (React
+   `useSyncExternalStore`, Vue watchers, Angular signals) re-render once
+   per `translateAll()` call, not once per key.
 
 ```
 t("a", "Abbrechen")
@@ -133,8 +138,8 @@ unique = ["Abbrechen", "Willkommen"]        ← deduplicated
         ↓ engine.translateBatch(unique)
 ["Cancel", "Welcome"]
         ↓ map back by value
-store: { a: "Cancel", b: "Cancel", c: "Welcome" }
-        ↓ store.subscribe fires
+store.setMany([["a","Cancel"], ["b","Cancel"], ["c","Welcome"]])
+        ↓ store.subscribe fires — exactly once
 frameworks re-render
 ```
 

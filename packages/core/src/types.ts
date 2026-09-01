@@ -58,7 +58,7 @@ export interface TranslationCapabilities {
  * - **Load lifecycle** — `load-start` / `load-done` (model preload)
  * - **Translation timing** — `translate-*`, `batch-*`, `translateall-*`
  * - **Engine internals** — `worker-spawn`, `worker-error`, `device-resolved`,
- *   `device-fallback`, `abort`
+ *   `device-fallback`, `inference-start`, `inference-done`, `abort`
  *
  * Every event carries a `timestamp` (from `performance.now()`).
  * The `onDebug` callback is opt-in and has zero overhead when absent.
@@ -123,6 +123,34 @@ export type DebugEvent =
       engine: string;
       from: string;
       to: string;
+    }
+  | {
+      /** Before the input is handed to the model (worker → engine). */
+      type: "inference-start";
+      timestamp: number;
+      engine: string;
+      /** Monotonic request ID matching the worker roundtrip. */
+      requestId: number;
+      /** Number of texts sent to the model (1 for single translate). */
+      batchSize: number;
+      /** Total input characters sent to the model. */
+      inputChars: number;
+    }
+  | {
+      /** After the model returned its output (worker → engine). */
+      type: "inference-done";
+      timestamp: number;
+      engine: string;
+      /** Monotonic request ID matching the worker roundtrip. */
+      requestId: number;
+      /** Number of texts sent to the model (1 for single translate). */
+      batchSize: number;
+      /** Total input characters sent to the model. */
+      inputChars: number;
+      /** Total output characters returned by the model. */
+      outputChars: number;
+      /** Wall-clock inference duration in milliseconds. */
+      durationMs: number;
     };
 
 /** Optional debug callback for structured lifecycle/timing events. */

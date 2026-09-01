@@ -238,4 +238,76 @@ describe("TransformersEngine debug events", () => {
     expect(types).toContain("translate-done");
     await translator.dispose();
   }, 600000);
+
+  it("emits inference-start/done bracketing the model call", async () => {
+    const engine = createOnnxEngine({ device: "wasm" });
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    await translator.translate("Hallo Welt");
+    const start = events.find((e) => e.type === "inference-start");
+    const done = events.find((e) => e.type === "inference-done");
+    // Both events must be present for the single translate() roundtrip.
+    expect(start).toBeDefined();
+    expect(done).toBeDefined();
+    if (start?.type === "inference-start" && done?.type === "inference-done") {
+      // Both events refer to the same worker request.
+      expect(start.requestId).toBe(done.requestId);
+      expect(start.engine).toBe("onnx");
+      expect(done.engine).toBe("onnx");
+      // Single translate() sends exactly one text to the model.
+      expect(start.batchSize).toBe(1);
+      expect(done.batchSize).toBe(1);
+      expect(start.inputChars).toBe("Hallo Welt".length);
+      expect(done.inputChars).toBe("Hallo Welt".length);
+      expect(done.outputChars).toBeGreaterThan(0);
+      expect(done.durationMs).toBeGreaterThan(0);
+      // inference-start must precede inference-done, and both must sit
+      // between translate-start and translate-done.
+      const order = events.map((e) => e.type);
+      expect(order.indexOf("translate-start")).toBeLessThan(order.indexOf("inference-start"));
+      expect(order.indexOf("inference-start")).toBeLessThan(order.indexOf("inference-done"));
+      expect(order.indexOf("inference-done")).toBeLessThan(order.indexOf("translate-done"));
+      // Pure inference time must not exceed the total translate duration.
+      const translateDone = events.find((e) => e.type === "translate-done");
+      if (translateDone?.type === "translate-done") {
+        expect(done.durationMs).toBeLessThanOrEqual(translateDone.durationMs);
+      }
+    }
+    await translator.dispose();
+  }, 600000);
+
+  it("emits one inference-start/done pair per batch chunk", async () => {
+    const engine = createOnnxEngine({ device: "wasm" });
+    const events: DebugEvent[] = [];
+    const translator = await createTranslator({
+      from: "de",
+      to: "en",
+      engines: [engine],
+      onDebug: (e) => events.push(e),
+    });
+    const inputs = ["Hallo Welt", "Guten Morgen", "Wie geht es dir?"];
+    await translator.translateBatch(inputs);
+    const starts = events.filter((e) => e.type === "inference-start");
+    const dones = events.filter((e) => e.type === "inference-done");
+    // The 3 short texts fit into a single chunk (MAX_BATCH/MAX_BATCH_CHARS
+    // not exceeded) → exactly one worker roundtrip.
+    expect(starts).toHaveLength(1);
+    expect(dones).toHaveLength(1);
+    const start = starts[0];
+    const done = dones[0];
+    if (start?.type === "inference-start" && done?.type === "inference-done") {
+      expect(start.requestId).toBe(done.requestId);
+      expect(start.batchSize).toBe(3);
+      expect(done.batchSize).toBe(3);
+      expect(start.inputChars).toBe(inputs.reduce((sum, t) => sum + t.length, 0));
+      expect(done.inputChars).toBe(inputs.reduce((sum, t) => sum + t.length, 0));
+      expect(done.outputChars).toBeGreaterThan(0);
+    }
+    await translator.dispose();
+  }, 600000);
 });

@@ -147,7 +147,7 @@ console.log(await translator.isCached()); // false
 | `translator.translateBatch(texts, options?)` | Translates multiple texts in one call (order preserved) |
 | `translator.preload()` | Explicitly preloads the model |
 | `translator.t()` | Returns bound `t(key, text?)` for i18n-style registration |
-| `translator.translateAll(options?)` | Translates all `t()`-registered strings in one `translateBatch()` |
+| `translator.translateAll(options?)` | Translates all `t()`-registered strings in one `translateBatch()` and notifies store subscribers once |
 | `translator.createLiveSession(options?)` | Creates a `LiveSession` for incremental live translation |
 | `translator.capabilities()` | Returns resolved engine capabilities (device, dtype, model info) |
 | `translator.removeModel()` | Removes cached model files from Cache Storage |

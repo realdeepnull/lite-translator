@@ -213,12 +213,16 @@ export class Translator {
       for (let i = 0; i < unique.length; i++) {
         valueToTranslation.set(unique[i]!, results[i]?.text ?? unique[i]!);
       }
+      // Batch-update the store: a single notify for all keys instead of one
+      // per key (subscribers re-evaluate once, not N times).
+      const updates: [string, string][] = [];
       for (const [key, value] of all) {
         const translated = valueToTranslation.get(value);
         if (translated !== undefined) {
-          this.#store.set(key, translated);
+          updates.push([key, translated]);
         }
       }
+      this.#store.setMany(updates);
       this.#debug({
         type: "translateall-done",
         timestamp: now(),

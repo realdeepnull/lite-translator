@@ -13,7 +13,7 @@ Part of [lite-translator](https://github.com/realdeepnull/lite-translator). This
 - Quantized OPUS-MT models for `de ↔ en`, `fr ↔ en`, `es ↔ en`, `it ↔ en`, `nl ↔ en` (loaded from the Hugging Face Hub)
 - Inference runs in a Web Worker (UI stays responsive)
 - Models are cached in the browser (Cache Storage) and work offline after the first download
-- **WebGPU acceleration** with automatic WASM fallback
+- **WASM inference by default** (predictable latency everywhere); **WebGPU acceleration** opt-in with automatic WASM fallback
 
 ## Install
 
@@ -43,8 +43,11 @@ await translator.dispose();
 
 `translateBatch` sends all texts to the worker in a single roundtrip and uses
 Transformers.js native batching (`pipe([...])`) — one tokenization, encoder and
-decoder pass for the whole batch. Batches larger than 32 texts are chunked to
-bound memory pressure.
+decoder pass for the whole batch. Inputs are sorted by text length so each
+chunk contains similar-length texts (ONNX pads every sequence to the longest
+in its chunk — this minimizes wasted padding tokens). Chunks are bounded by
+both a text limit and a character budget to keep memory pressure low.
+Result order always matches input order; empty strings are passed through.
 
 ```ts
 const results = await translator.translateBatch(["Hallo Welt", "Guten Morgen"]);
@@ -55,27 +58,30 @@ The engine downloads models lazily on first use. To preload explicitly, call `aw
 
 ### WebGPU acceleration
 
-By default the engine uses `device: "auto"`, which probes `navigator.gpu` and
-selects WebGPU when a GPU adapter is available, falling back to WASM otherwise.
+The engine runs on WASM by default (`device: "wasm"`, dtype `bnb4`) —
+predictable latency in every environment, no GPU probing. WebGPU is opt-in:
 
 ```ts
-// Automatic: WebGPU if available, else WASM (default)
+// Default: WASM (bnb4)
 const engine = createOnnxEngine();
+
+// Opt-in: WebGPU if an adapter is available, else WASM
+const engine = createOnnxEngine({ device: "auto" });
 
 // Force WebGPU (throws if unavailable)
 const engine = createOnnxEngine({ device: "webgpu" });
 
-// Force WASM
+// Force WASM (explicit)
 const engine = createOnnxEngine({ device: "wasm" });
 
 // Override dtype (optional)
-const engine = createOnnxEngine({ device: "auto", dtype: "fp32" });
+const engine = createOnnxEngine({ device: "auto", dtype: "bnb4" });
 ```
 
-| Device   | Default dtype                                       | Notes                                                                                                  |
-| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `webgpu` | `fp16` (or `fp32` when `shader-f16` is unavailable) | Fastest inference                                                                                      |
-| `wasm`   | `bnb4`                                              | Safe default; `fp32` triggers `ShapeInferenceError`, `q8`/`int8`/`q4` trigger `MatMulNBits` regression |
+| Device   | Default dtype | Notes                                                                                                                              |
+| -------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `webgpu` | `bnb4`        | Same reliable quantization as WASM, with GPU acceleration. `fp16` produces empty/garbage output for short strings (UI labels, single words) — avoid unless you only translate long sentences. `fp32` works but downloads are ~2× larger and slower. |
+| `wasm`   | `bnb4`        | Safe default; `fp32` triggers `ShapeInferenceError`, `q8`/`int8`/`uint8`/`q4` trigger `MatMulNBits` regression                      |
 
 After loading, the resolved device and dtype are available via `capabilities()`:
 
@@ -84,8 +90,8 @@ const engine = createOnnxEngine();
 const translator = await createTranslator({ from: "de", to: "en", engines: [engine] });
 await translator.preload();
 console.log(engine.capabilities());
-// { engine: "onnx", device: "webgpu", dtype: "fp16", modelId: "onnx-community/opus-mt-de-en" }
-// or { engine: "onnx", device: "wasm", dtype: "bnb4", modelId: "..." }
+// { engine: "onnx", device: "wasm", dtype: "bnb4", modelId: "onnx-community/opus-mt-de-en" }
+// with device: "auto" and a GPU adapter: { engine: "onnx", device: "webgpu", dtype: "bnb4", modelId: "..." }
 ```
 
 ## Supported language pairs

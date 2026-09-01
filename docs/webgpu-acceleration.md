@@ -1,16 +1,16 @@
 # WebGPU Acceleration
 
-Lite Translator uses the GPU for faster inference when the browser supports
-WebGPU, and automatically falls back to WASM when it does not. The selection
-happens at model load time — no configuration is required for the default case.
+Lite Translator can use the GPU for faster inference when the browser supports
+WebGPU, and automatically falls back to WASM when it does not. **WASM is the
+default** — WebGPU is opt-in via `device: "auto"` or `device: "webgpu"`.
 
-## Default behavior (`device: "auto"`)
+## Default behavior (`device: "wasm"`)
 
 ```ts
 import { createTranslator } from "@lite-translator/core";
 import { createOnnxEngine } from "@lite-translator/engine-onnx";
 
-const engine = createOnnxEngine(); // device: "auto" (default)
+const engine = createOnnxEngine(); // device: "wasm" (default), dtype: "bnb4"
 
 const translator = await createTranslator({
   from: "de",
@@ -20,34 +20,67 @@ const translator = await createTranslator({
 
 await translator.preload();
 console.log(engine.capabilities());
-// { engine: "onnx", device: "webgpu", dtype: "fp16", modelId: "onnx-community/opus-mt-de-en" } — GPU with shader-f16
-// { engine: "onnx", device: "webgpu", dtype: "fp32", modelId: "..." } — GPU, no shader-f16
-// { engine: "onnx", device: "wasm",    dtype: "bnb4",  modelId: "..." } — no GPU
+// { engine: "onnx", device: "wasm", dtype: "bnb4", modelId: "onnx-community/opus-mt-de-en" }
+```
+
+WASM needs no probing, runs in every environment, and has predictable latency.
+For the small autoregressive OPUS-MT models with typical (short) inputs it is
+usually as fast as — often faster than — WebGPU (see
+[Why WASM by default?](#why-wasm-by-default)).
+
+## Opting into WebGPU (`device: "auto"`)
+
+```ts
+const engine = createOnnxEngine({ device: "auto" });
 ```
 
 The engine probes `navigator.gpu` and calls `requestAdapter()`. If an adapter
-is returned and supports the `shader-f16` feature, WebGPU with `fp16` is
-selected. If an adapter exists but lacks `shader-f16`, WebGPU with `fp32` is
-used. If no adapter is available (or `navigator.gpu` is absent), the engine
-falls back to WASM with `bnb4` quantization.
+is returned, WebGPU with `bnb4` is selected; otherwise the engine falls back
+to WASM (also `bnb4`). The adapter probe is memoized — `requestAdapter()`
+can take tens of milliseconds, so it runs **once per page lifetime** instead
+of once or twice per `load()`. Repeated calls (including from
+`detectWebGpu()` / `isFp16Supported()`) reuse the cached promise.
 
-### Why `bnb4` on WASM?
+`fp16` is accepted as an explicit dtype override but is never auto-selected:
+it produces empty or garbage output for short strings (UI labels, single
+words). `fp32` works but roughly doubles the model download.
+
+### Why `bnb4` on both devices?
 
 Transformers.js v4 ships with `onnxruntime-web`, which has a known
 [MatMulNBits regression](https://github.com/huggingface/transformers.js/issues/1635)
 affecting `q8`, `int8`, `uint8`, `q4`, and `q4f16` dtypes on **both** backends.
 `fp32` triggers a separate `ShapeInferenceError` on WASM. `bnb4` (BitsAndBytes
 4-bit) uses a different ONNX op graph that avoids both bugs and is the only
-proven-working quantized dtype on WASM.
+proven-working quantized dtype on WASM. The same reasoning applies to WebGPU:
+`fp16` — the natural GPU choice — produces empty or garbage output for short
+strings because the decoder hallucinates repetitions and punctuation streams.
+`bnb4` works reliably on both devices.
+
+## Why WASM by default?
+
+- **Predictability** — identical behavior and latency in every environment: no
+  adapter probing, no per-GPU variance, no surprises in headless browsers or CI.
+- **Autoregressive decoding** — OPUS-MT/MarianMT generates one token per decoder
+  step across many small sequential ops. The per-step GPU dispatch overhead
+  often outweighs the compute speedup for typical (short) inputs; WebGPU mainly
+  wins on long texts and large batches.
+- **Cold start** — the first WebGPU run includes runtime shader compilation,
+  which adds noticeable latency to the first translation.
+- **Correctness** — `bnb4`, the only proven-reliable quantized dtype, works on
+  WASM; `fp16`, the classic WebGPU dtype, hallucinates on short strings.
 
 ## Forcing a device
 
 ```ts
+// WASM (the default) — explicit form
+const engine = createOnnxEngine({ device: "wasm" });
+
+// WebGPU if available, else WASM
+const engine = createOnnxEngine({ device: "auto" });
+
 // Always use WebGPU; throws if unavailable
 const engine = createOnnxEngine({ device: "webgpu" });
-
-// Always use WASM (e.g. for testing or predictable behavior)
-const engine = createOnnxEngine({ device: "wasm" });
 ```
 
 When `device: "webgpu"` is set explicitly and WebGPU is not available,
@@ -62,6 +95,9 @@ error. Explicit `device: "webgpu"` does not retry.
 ## Forcing a dtype
 
 ```ts
+// WebGPU with fp16 — only for long, sentence-like inputs
+const engine = createOnnxEngine({ device: "webgpu", dtype: "fp16" });
+
 // WebGPU with fp32 (e.g. for maximum accuracy)
 const engine = createOnnxEngine({ device: "webgpu", dtype: "fp32" });
 
@@ -72,13 +108,19 @@ const engine = createOnnxEngine({ device: "wasm", dtype: "bnb4" });
 const engine = createOnnxEngine({ device: "webgpu", dtype: "q4f16" });
 ```
 
-When `dtype` is omitted, the engine picks a safe default for the resolved
+`fp16` requires the adapter's `shader-f16` feature and is **not recommended**
+for general use: it produces empty or garbage output for short strings (UI
+labels, single words). Prefer the default (`bnb4`) unless you exclusively
+translate long sentences. `fp32` works reliably but doubles the model
+download size.
+
+When `dtype` is omitted, the engine picks the safe default for the resolved
 device:
 
-| Device  | Default dtype | Fallback dtype      |
-| ------- | ------------- | ------------------- |
-| webgpu  | `fp16`        | `fp32` (no shader-f16) |
-| wasm    | `bnb4`        | —                   |
+| Device  | Default dtype | Notes                                                                     |
+| ------- | ------------- | ------------------------------------------------------------------------- |
+| webgpu  | `bnb4`        | `fp16` hallucinates on short inputs; `fp32` works but ~2× larger download |
+| wasm    | `bnb4`        | Only proven-working quantized dtype on v4's onnxruntime-web               |
 
 `q4f16` is accepted as an explicit override but excluded from auto-selection
 because it uses MatMulNBits ops. A console warning is emitted when `q4f16` is
@@ -89,13 +131,13 @@ selected.
 ```ts
 const engine = createOnnxEngine();
 
-// Before load — resolution is lazy (WebGPU probing is async)
-engine.capabilities(); // { device: "auto", dtype: "auto" }
+// Before load — nothing resolved yet
+engine.capabilities(); // { engine: "onnx" }
 
 await translator.preload();
 
-// After load — concrete values
-engine.capabilities(); // { engine: "onnx", device: "webgpu", dtype: "fp16", modelId: "..." }
+// After load — concrete values (default engine: wasm/bnb4)
+engine.capabilities(); // { engine: "onnx", device: "wasm", dtype: "bnb4", modelId: "..." }
 ```
 
 `capabilities()` is available on both the `TransformersEngine` and the

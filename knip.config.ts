@@ -8,6 +8,7 @@ const config: KnipConfig = {
         "bench/quality/quality.browser.test.ts",
         "bench/quality/cases.ts",
         "bench/benchmark/benchmark.browser.test.ts",
+        "bench/benchmark/long-text.browser.test.ts",
         "bench/benchmark/types.ts",
       ],
       project: ["*.{js,ts}", "bench/**/*.ts"],

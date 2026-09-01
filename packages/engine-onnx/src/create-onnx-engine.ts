@@ -10,16 +10,17 @@ export interface OnnxEngineOptions {
   /** Overrides the default language-pair-to-model-ID mapping. */
   models?: Record<string, string>;
   /**
-   * Device selection mode. Defaults to `"auto"`, which uses WebGPU when
-   * `navigator.gpu` and a GPU adapter are available, falling back to WASM.
-   * Use `"webgpu"` to require WebGPU (throws if unavailable) or `"wasm"` to
-   * force WASM.
+   * Device selection mode. Defaults to `"wasm"` — predictable latency in
+   * every environment, no GPU probing. Use `"auto"` to probe `navigator.gpu`
+   * and use WebGPU when an adapter is available (falling back to WASM), or
+   * `"webgpu"` to require WebGPU (throws if unavailable).
    */
   device?: OnnxDevice;
   /**
-   * Optional dtype override. When omitted the engine picks a safe default
-   * for the resolved device: `"fp16"` on WebGPU (or `"fp32"` when
-   * `shader-f16` is unavailable), `"bnb4"` on WASM.
+   * Optional dtype override. When omitted the engine picks the safe default
+   * for the resolved device: `"bnb4"` on both WebGPU and WASM (`fp16`
+   * produces empty/garbage output for short strings; `q8`/`q4` trigger the
+   * MatMulNBits regression; `fp32` triggers ShapeInferenceError on WASM).
    *
    * `"q4f16"` is accepted but may trigger a known onnxruntime-web
    * MatMulNBits regression.

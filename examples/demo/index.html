@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -323,6 +323,70 @@
         font-variant-numeric: tabular-nums;
       }
 
+      /* ----- Debug-Panel ----- */
+      .debug-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.75rem;
+        margin: 1rem 0;
+      }
+      .debug-metric {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.65rem 0.85rem;
+      }
+      .debug-metric .label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+        font-weight: 600;
+      }
+      .debug-metric .value {
+        font-size: 1.15rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        margin-top: 0.15rem;
+      }
+      .debug-metric .value small {
+        font-size: 0.7rem;
+        font-weight: 400;
+        color: var(--text-muted);
+      }
+      .debug-metric.is-active .value { color: var(--warning); }
+
+      .debug-log {
+        margin-top: 1rem;
+        background: #0b0e13;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem 0.9rem;
+        max-height: 22rem;
+        overflow-y: auto;
+        font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+        font-size: 0.74rem;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .debug-log .line { display: block; }
+      .debug-log .line .t {
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .debug-log .line .type { font-weight: 600; }
+      .debug-log .line .detail { color: var(--text-muted); }
+      .debug-log .type.t-load { color: var(--accent); }
+      .debug-log .type.t-translate { color: var(--success); }
+      .debug-log .type.t-batch { color: #a78bfa; }
+      .debug-log .type.t-translateall { color: #a78bfa; }
+      .debug-log .type.t-inference { color: var(--warning); }
+      .debug-log .type.t-worker { color: #e3b341; }
+      .debug-log .type.t-device { color: #58a6ff; }
+      .debug-log .type.t-error { color: var(--error); }
+      .debug-log .type.t-abort { color: var(--error); }
+
       details {
         margin-top: 1.5rem;
         font-size: 0.85rem;
@@ -347,88 +411,88 @@
     <div class="wrap">
       <header>
         <h1>lite-translator Demo</h1>
-        <p class="subtitle">Lokale Übersetzung im Browser — @lite-translator/core + @lite-translator/engine-onnx.</p>
-        <span class="badge" id="status"><span class="dot"></span><span id="status-text">Modell nicht geladen</span></span>
+        <p class="subtitle">Local translation in the browser — @lite-translator/core + @lite-translator/engine-onnx.</p>
+        <span class="badge" id="status"><span class="dot"></span><span id="status-text">Model not loaded</span></span>
       </header>
 
       <div class="toolbar">
         <div class="lang-select">
-          <select id="from" aria-label="Quellsprache">
-            <option value="de" selected>Deutsch</option>
-            <option value="en">Englisch</option>
-            <option value="fr">Französisch</option>
-            <option value="es">Spanisch</option>
-            <option value="it">Italienisch</option>
-            <option value="nl">Niederländisch</option>
+          <select id="from" aria-label="Source language">
+            <option value="de" selected>German</option>
+            <option value="en">English</option>
+            <option value="fr">French</option>
+            <option value="es">Spanish</option>
+            <option value="it">Italian</option>
+            <option value="nl">Dutch</option>
           </select>
           →
-          <select id="to" aria-label="Zielsprache">
-            <option value="en" selected>Englisch</option>
-            <option value="de">Deutsch</option>
-            <option value="fr">Französisch</option>
-            <option value="es">Spanisch</option>
-            <option value="it">Italienisch</option>
-            <option value="nl">Niederländisch</option>
+          <select id="to" aria-label="Target language">
+            <option value="en" selected>English</option>
+            <option value="de">German</option>
+            <option value="fr">French</option>
+            <option value="es">Spanish</option>
+            <option value="it">Italian</option>
+            <option value="nl">Dutch</option>
           </select>
         </div>
-        <button id="preload" type="button">Modell vorladen</button>
+        <button id="preload" type="button">Preload model</button>
         <div class="progress"><div id="bar"></div></div>
-        <div class="progress-label" id="progress-label">Bereit.</div>
+        <div class="progress-label" id="progress-label">Ready.</div>
       </div>
 
-      <!-- Live-Eingabe (Live-Übersetzung mit Debouncing) -->
+      <!-- Live input (live translation with debouncing) -->
       <section class="card">
-        <h2>Live-Eingabe</h2>
-        <p class="help">Live-Übersetzung während des Tippens — wie bei Chat-Nachrichten oder Speech-to-Text. Sätze werden segmentiert; fertige Sätze werden gecacht und nur der wachsende Rest wird neu übersetzt. Veraltete Ergebnisse werden automatisch verworfen.</p>
+        <h2>Live input</h2>
+        <p class="help">Live translation while typing — like chat messages or speech-to-text. Sentences are segmented; completed sentences are cached and only the growing tail is re-translated. Outdated results are discarded automatically.</p>
         <label class="toggle" for="live-mode">
           <input type="checkbox" id="live-mode" checked />
           <span class="track"></span>
-          <span>Live-Modus (während des Tippens übersetzen)</span>
+          <span>Live mode (translate while typing)</span>
         </label>
-        <label class="field" for="src">Quelltext</label>
-        <textarea id="src" placeholder="Text eingeben …">Hallo Welt, wie geht es dir?</textarea>
+        <label class="field" for="src">Source text</label>
+        <textarea id="src" placeholder="Enter text…">Hallo Welt, wie geht es dir?</textarea>
         <div class="actions" style="margin-top:0.85rem">
-          <button id="run" class="primary" type="button">Übersetzen</button>
-          <button id="clear-live" type="button">Leeren</button>
+          <button id="run" class="primary" type="button">Translate</button>
+          <button id="clear-live" type="button">Clear</button>
           <span id="live-status" style="font-size:0.8rem;color:var(--text-muted);font-variant-numeric:tabular-nums"></span>
         </div>
         <div class="row" style="margin-top:0.85rem">
           <div>
-            <label class="field">Quelltext</label>
-            <div class="out placeholder" id="src-mirror">(leer)</div>
+            <label class="field">Source text</label>
+            <div class="out placeholder" id="src-mirror">(empty)</div>
           </div>
           <div>
-            <label class="field">Übersetzung</label>
-            <div class="out placeholder" id="out" aria-live="polite">(leer)</div>
-            <label class="field" style="margin-top:0.6rem">Wachsender Teil (partial)</label>
-            <div class="out placeholder" id="partial-out" style="min-height:2rem;font-style:italic">(leer)</div>
+            <label class="field">Translation</label>
+            <div class="out placeholder" id="out" aria-live="polite">(empty)</div>
+            <label class="field" style="margin-top:0.6rem">Growing part (partial)</label>
+            <div class="out placeholder" id="partial-out" style="min-height:2rem;font-style:italic">(empty)</div>
           </div>
         </div>
       </section>
 
-      <!-- Batch-Übersetzung mehrerer Fließtexte -->
+      <!-- Batch translation of multiple texts -->
       <section class="card">
-        <h2>Batch-Übersetzung</h2>
-        <p class="help">Mehrere längere Fließtexte auf einmal übersetzen. Der Toggle aktiviert die Abarbeitung aller Texte; ausgeschaltet wird nur der erste Text übersetzt.</p>
+        <h2>Batch translation</h2>
+        <p class="help">Translate several longer texts at once. The toggle enables processing all texts; when turned off, only the first text is translated.</p>
 
         <label class="toggle" for="batch-all">
           <input type="checkbox" id="batch-all" checked />
           <span class="track"></span>
-          <span>Alle Texte übersetzen (Batch)</span>
+          <span>Translate all texts (batch)</span>
         </label>
 
         <div id="batch"></div>
 
         <div class="actions" style="margin-top:1rem">
-          <button id="run-batch" class="primary" type="button">Batch starten</button>
-          <button id="clear-batch" type="button">Ergebnisse leeren</button>
+          <button id="run-batch" class="primary" type="button">Start batch</button>
+          <button id="clear-batch" type="button">Clear results</button>
         </div>
       </section>
 
-      <!-- i18n-Style: t() / translateAll() -->
+      <!-- i18n style: t() / translateAll() -->
       <section class="card">
-        <h2>i18n-Style (t / translateAll)</h2>
-        <p class="help">UI-Strings über mehrere „Komponenten" verteilt mit <code>t(key, text)</code> registrieren; ein Klick auf „Alle übersetzen" führt genau einen <code>translateBatch</code>-Aufruf für alle registrierten Strings aus. Identische Werte werden vor der Inferenz dedupliziert (z.B. „Abbrechen"). Reaktiv via <code>store.subscribe()</code>.</p>
+        <h2>i18n style (t / translateAll)</h2>
+        <p class="help">Register UI strings spread across several "components" via <code>t(key, text)</code>; clicking "Translate all" performs exactly one <code>translateBatch</code> call for all registered strings. Identical values are deduplicated before inference (e.g. "Abbrechen"). Reactive via <code>store.subscribe()</code>.</p>
 
         <div class="i18n-components">
           <div class="i18n-component">
@@ -442,7 +506,7 @@
             <div class="i18n-row"><span class="i18n-key">footer.link</span><span class="i18n-text" data-i18n-key="footer.link">Abbrechen</span></div>
           </div>
           <div class="i18n-component">
-            <h3>Formular</h3>
+            <h3>Form</h3>
             <div class="i18n-row"><span class="i18n-key">form.name</span><span class="i18n-text" data-i18n-key="form.name">Name</span></div>
             <div class="i18n-row"><span class="i18n-key">form.email</span><span class="i18n-text" data-i18n-key="form.email">E-Mail-Adresse</span></div>
             <div class="i18n-row"><span class="i18n-key">form.cancel</span><span class="i18n-text" data-i18n-key="form.cancel">Abbrechen</span></div>
@@ -450,32 +514,69 @@
         </div>
 
         <div class="actions" style="margin-top:1rem">
-          <button id="run-i18n" class="primary" type="button">Alle übersetzen</button>
-          <button id="reset-i18n" type="button">Zurücksetzen</button>
+          <button id="run-i18n" class="primary" type="button">Translate all</button>
+          <button id="reset-i18n" type="button">Reset</button>
           <span id="i18n-stats" class="i18n-stats"></span>
         </div>
       </section>
 
+      <!-- Debug: structured debug events (onDebug) -->
+      <section class="card">
+        <h2>Debug output</h2>
+        <p class="help">Structured <code>DebugEvent</code>s via <code>onDebug</code> — loading, translating, and model communication (<code>inference-start</code> = data sent to the model, <code>inference-done</code> = result returned). Forwarded to all language pairs via the <code>TranslatorPool</code>.</p>
+
+        <div class="debug-metrics">
+          <div class="debug-metric" id="metric-load">
+            <div class="label">Model load</div>
+            <div class="value" id="metric-load-value">—</div>
+          </div>
+          <div class="debug-metric" id="metric-translate">
+            <div class="label">Translate (total)</div>
+            <div class="value" id="metric-translate-value">—</div>
+          </div>
+          <div class="debug-metric" id="metric-inference">
+            <div class="label">Model inference</div>
+            <div class="value" id="metric-inference-value">—</div>
+          </div>
+          <div class="debug-metric" id="metric-overhead">
+            <div class="label">Worker overhead</div>
+            <div class="value" id="metric-overhead-value">—</div>
+          </div>
+          <div class="debug-metric" id="metric-io">
+            <div class="label">Model I/O</div>
+            <div class="value" id="metric-io-value">— <small>chars</small></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="clear-debug" type="button">Clear log</button>
+          <span style="font-size:0.78rem;color:var(--text-muted)">Last 100 events · timestamps relative to page load</span>
+        </div>
+        <div class="debug-log" id="debug-log"><span class="line" style="color:var(--text-muted)">No events yet — preload the model or translate…</span></div>
+      </section>
+
       <details>
-        <summary>Voraussetzung</summary>
-        Zuerst <code>npm run build</code> im Repo ausführen. Diese Seite lädt die lokalen
-        <code>dist</code>-Bundles der Workspace-Pakete direkt (ohne separaten Bundler).
-        Die erste Übersetzung lädt das quantisierte Modell vom Hugging Face Hub.
-        Sprachpaare werden via <code>TranslatorPool</code> gecacht — beim Wechsel zurück
-        zu einem bereits geladenen Paar ist die Übersetzung sofort verfügbar.
+        <summary>Prerequisites</summary>
+        Run <code>npm run build</code> in the repo first. This page loads the local
+        <code>dist</code> bundles of the workspace packages directly (without a separate bundler).
+        The first translation downloads the quantized model from the Hugging Face Hub.
+        Language pairs are cached via <code>TranslatorPool</code> — switching back to an
+        already-loaded pair makes the translation instantly available.
       </details>
 
-      <footer>lite-translator — Datenschutzfreundlich, lokal, offlinefähig.</footer>
+      <footer>lite-translator — Privacy-friendly, local, offline-capable.</footer>
     </div>
 
     <script type="module">
       import { formatTranslatorError, TranslatorPool } from "../../packages/core/dist/index.js";
       import { createOnnxEngine } from "../../packages/engine-onnx/dist/index.js";
 
-      // ----- Beispielfließtexte (längere Texte für die Batch-Demo) -----
+      // ----- Sample texts (longer texts for the batch demo) -----
+      // Note: the sample texts stay in German — they are the demo's translation
+      // input for the default de → en language pair.
       const sampleTexts = [
         {
-          title: "Reisebericht",
+          title: "Travel report",
           text:
             "Letzten Sommer bin ich mit dem Zug durch die Alpen gereist. " +
             "Die Berge waren noch leicht verschneit und die Täler leuchteten in einem satten Grün. " +
@@ -483,7 +584,7 @@
             "Besonders im Gedächtnis geblieben ist mir der Sonnenaufgang über dem Mont Blanc, als die ersten Sonnenstrahlen die Gipfel golden färbten."
         },
         {
-          title: "Kurzgeschichte",
+          title: "Short story",
           text:
             "Die alte Bibliothek am Marktplatz roch nach Papier und Bohnerwachs. " +
             "Hinter dem Tresen saß Frau Lindqvist, die seit zweiunddreißig Jahren jeden einzelnen Regalstand auswendig kannte. " +
@@ -491,7 +592,7 @@
             "Eines Tages jedoch fehlte ein Band, und niemand wusste, wohin es verschwunden war."
         },
         {
-          title: "Technologie-Kommentar",
+          title: "Technology commentary",
           text:
             "Lokale Übersetzungsmodelle werden zunehmend leistungsfähig und können direkt im Browser laufen. " +
             "Das spart Bandbreite, schützt die Privatsphäre der Nutzer und funktioniert auch ohne Netzwerkverbindung. " +
@@ -500,7 +601,7 @@
         }
       ];
 
-      // ----- DOM-Referenzen -----
+      // ----- DOM references -----
       const fromSel = document.getElementById("from");
       const toSel = document.getElementById("to");
       const preloadBtn = document.getElementById("preload");
@@ -523,22 +624,25 @@
       const runBatchBtn = document.getElementById("run-batch");
       const clearBatchBtn = document.getElementById("clear-batch");
 
-      // ----- Translator-Verwaltung (TranslatorPool: ein Translator pro Sprachpaar, gecacht) -----
-      // Engine einmal erstellen und über alle Translator teilen — ein Worker für alle Paare.
-      const engine = createOnnxEngine({ device: "auto", dtype: "bnb4" });
+      // ----- Translator management (TranslatorPool: one translator per language pair, cached) -----
+      // Create the engine once and share it across all translators — one worker for all pairs.
+      // device/dtype default to wasm/bnb4 — predictable latency on every machine.
+      const engine = createOnnxEngine();
       const pool = new TranslatorPool({
         engines: [engine],
-        maxSize: 4, // älteste Translator werden bei Überschreitung disposed (LRU)
+        maxSize: 4, // oldest translators are disposed when exceeded (LRU)
         onProgress: (e) => {
-          if (Number.isFinite(e.progress)) setProgress(e.progress, `Lade Modell … ${Math.round(e.progress * 100)}%`);
+          if (Number.isFinite(e.progress)) setProgress(e.progress, `Loading model … ${Math.round(e.progress * 100)}%`);
         },
+        // Collect structured debug events across all cached language pairs.
+        onDebug: (e) => handleDebugEvent(e),
       });
       let isLoading = false;
 
-      /** Liest die vom Engine aufgelöste device/dtype-Konfiguration. */
+      /** Reads the device/dtype configuration resolved by the engine. */
       function capabilitiesLabel() {
         const caps = engine.capabilities();
-        if (caps.device === "auto") return "";
+        if (!caps.device) return "";
         return ` · ${caps.device}/${caps.dtype}`;
       }
 
@@ -565,26 +669,199 @@
         const t = await getTranslator();
         if (!t.isReady()) {
           isLoading = true;
-          setStatus("busy", "Modell wird geladen …");
-          setProgress(0, "Lade Modell …");
+          setStatus("busy", "Loading model…");
+          setProgress(0, "Loading model…");
           try {
             await t.preload();
-            setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
-            setProgress(1, `Modell bereit${capabilitiesLabel()}.`);
+            setStatus("ready", `Model ready${capabilitiesLabel()}`);
+            setProgress(1, `Model ready${capabilitiesLabel()}.`);
           } catch (err) {
-            setStatus("error", "Fehler beim Laden");
-            setProgress(0, "Fehler.");
+            setStatus("error", "Error while loading");
+            setProgress(0, "Error.");
             throw err;
           } finally {
             isLoading = false;
           }
         } else {
-          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
+          setStatus("ready", `Model ready${capabilitiesLabel()}`);
         }
         return t;
       }
 
-      // ----- Live-Section (LiveSession mit Debouncing) -----
+      // ----- Debug panel (structured debug events via onDebug) -----
+      const debugLog = document.getElementById("debug-log");
+      const clearDebugBtn = document.getElementById("clear-debug");
+      const metricLoad = document.getElementById("metric-load-value");
+      const metricTranslate = document.getElementById("metric-translate-value");
+      const metricInference = document.getElementById("metric-inference-value");
+      const metricOverhead = document.getElementById("metric-overhead-value");
+      const metricIo = document.getElementById("metric-io-value");
+      const metricLoadBox = document.getElementById("metric-load");
+      const metricTranslateBox = document.getElementById("metric-translate");
+      const metricInferenceBox = document.getElementById("metric-inference");
+
+      /** Reference origin: the first received event timestamp. */
+      let debugT0 = null;
+      const MAX_DEBUG_LINES = 100;
+
+      /** Running totals for the metric tiles. */
+      const stats = {
+        loadMs: 0,
+        translateMs: 0,
+        inferenceMs: 0,
+        inputChars: 0,
+        outputChars: 0,
+      };
+
+      /**
+       * Inference time of the currently running translate()/translateBatch() call.
+       * Between *-start and *-done we accumulate all inference-done durations;
+       * the difference to translate-done/batch-done is the worker overhead.
+       */
+      let currentInferenceMs = 0;
+
+      /** Event type → CSS class for the log. */
+      function typeClass(type) {
+        if (type.startsWith("load")) return "t-load";
+        if (type.startsWith("translateall")) return "t-translateall";
+        if (type.startsWith("translate")) return "t-translate";
+        if (type.startsWith("batch")) return "t-batch";
+        if (type.startsWith("inference")) return "t-inference";
+        if (type.startsWith("worker")) return "t-worker";
+        if (type.startsWith("device")) return "t-device";
+        if (type === "abort") return "t-abort";
+        return "t-error";
+      }
+
+      /** Compact, human-readable detail line per event type. */
+      function eventDetails(e) {
+        switch (e.type) {
+          case "load-start":
+            return `${e.pair.from} → ${e.pair.to}: download/load started`;
+          case "load-done":
+            return `${e.pair.from} → ${e.pair.to}: ${fmtMs(e.durationMs)}`;
+          case "translate-start":
+            return `${e.inputLength} chars handed to the engine`;
+          case "translate-done":
+            return `${e.inputLength} → ${e.outputLength} chars · ${fmtMs(e.durationMs)}`;
+          case "batch-start":
+            return `${e.batchSize} texts`;
+          case "batch-done":
+            return `${e.batchSize} texts · ${fmtMs(e.durationMs)}`;
+          case "translateall-start":
+            return `${e.keyCount} keys`;
+          case "translateall-done":
+            return `${e.keyCount} keys → ${e.uniqueCount} unique · ${fmtMs(e.durationMs)}`;
+          case "inference-start":
+            return `→ ${e.batchSize} texts (${e.inputChars} chars) sent to the model · request #${e.requestId}`;
+          case "inference-done":
+            return `← ${e.batchSize} texts (${e.outputChars} chars) returned · ${fmtMs(e.durationMs)} · request #${e.requestId}`;
+          case "abort":
+            return "Abort signal detected";
+          case "worker-spawn":
+            return "Web Worker started";
+          case "worker-error":
+            return e.message;
+          case "device-resolved":
+            return `${e.device}/${e.dtype}`;
+          case "device-fallback":
+            return `${e.from} → ${e.to} (WebGPU failed)`;
+          default:
+            return "";
+        }
+      }
+
+      function fmtMs(ms) {
+        return `${Math.round(ms)} ms`;
+      }
+
+      function appendDebugLine(e) {
+        if (debugT0 === null) debugT0 = e.timestamp;
+        const rel = ((e.timestamp - debugT0) / 1000).toFixed(2).padStart(7, " ");
+        const line = document.createElement("span");
+        line.className = "line";
+        line.innerHTML =
+          `<span class="t">+${rel}s</span> ` +
+          `<span class="type ${typeClass(e.type)}">${e.type}</span> ` +
+          `<span class="detail">${eventDetails(e)}</span>`;
+        debugLog.appendChild(line);
+        while (debugLog.childElementCount > MAX_DEBUG_LINES) debugLog.removeChild(debugLog.firstChild);
+        debugLog.scrollTop = debugLog.scrollHeight;
+      }
+
+      function setMetric(el, text, box) {
+        el.innerHTML = text;
+        box?.classList.add("is-active");
+        setTimeout(() => box?.classList.remove("is-active"), 400);
+      }
+
+      /** Updates the model I/O tile (chars sent to / returned from the model). */
+      function updateIoMetric() {
+        metricIo.innerHTML = `${stats.inputChars} → ${stats.outputChars} <small>chars</small>`;
+      }
+
+      /**
+       * Central onDebug processing: log line + metrics.
+       * translate-done minus Σ inference-done = worker roundtrip + chunking overhead.
+       */
+      function handleDebugEvent(e) {
+        appendDebugLine(e);
+        switch (e.type) {
+          case "load-done":
+            stats.loadMs = e.durationMs;
+            setMetric(metricLoad, fmtMs(e.durationMs), metricLoadBox);
+            break;
+          case "translate-start":
+          case "batch-start":
+          case "translateall-start":
+            // A new call starts — reset the inference sum for this call.
+            currentInferenceMs = 0;
+            break;
+          case "translate-done":
+            stats.translateMs += e.durationMs;
+            setMetric(metricTranslate, fmtMs(e.durationMs), metricTranslateBox);
+            metricOverhead.innerHTML = `Ø ${fmtMs(Math.max(0, e.durationMs - currentInferenceMs))}`;
+            break;
+          case "batch-done":
+          case "translateall-done":
+            metricOverhead.innerHTML = `Ø ${fmtMs(Math.max(0, e.durationMs - currentInferenceMs))}`;
+            break;
+          case "inference-start":
+            stats.inputChars += e.inputChars;
+            updateIoMetric();
+            break;
+          case "inference-done":
+            stats.inferenceMs += e.durationMs;
+            stats.outputChars += e.outputChars;
+            currentInferenceMs += e.durationMs;
+            setMetric(metricInference, fmtMs(e.durationMs), metricInferenceBox);
+            updateIoMetric();
+            break;
+          default:
+            break;
+        }
+      }
+
+      clearDebugBtn.addEventListener("click", () => {
+        debugLog.innerHTML = "";
+        debugLog.appendChild(Object.assign(document.createElement("span"), {
+          textContent: "Log cleared.",
+          className: "line",
+        }));
+        stats.loadMs = 0;
+        stats.translateMs = 0;
+        stats.inferenceMs = 0;
+        stats.inputChars = 0;
+        stats.outputChars = 0;
+        currentInferenceMs = 0;
+        metricLoad.textContent = "—";
+        metricTranslate.textContent = "—";
+        metricInference.textContent = "—";
+        metricOverhead.textContent = "—";
+        updateIoMetric();
+      });
+
+      // ----- Live section (LiveSession with debouncing) -----
       let liveSession = null;
 
       function renderLive() {
@@ -593,28 +870,28 @@
           srcMirror.textContent = src.value;
           srcMirror.classList.remove("placeholder");
         } else {
-          srcMirror.textContent = "(leer)";
+          srcMirror.textContent = "(empty)";
           srcMirror.classList.add("placeholder");
         }
       }
 
-      /** Erstellt eine neue LiveSession für den aktuellen Translator. */
+      /** Creates a new LiveSession for the current translator. */
       async function ensureLiveSession() {
         const t = await ensureReady();
         if (!liveSession || liveSession.disposed) {
           liveSession = t.createLiveSession({ debounce: 300 });
           liveSession.on("translation", (e) => {
-            out.textContent = e.text || "(leer)";
+            out.textContent = e.text || "(empty)";
             out.classList.toggle("placeholder", !e.text);
-            partialOut.textContent = e.partial || "(leer)";
+            partialOut.textContent = e.partial || "(empty)";
             partialOut.classList.toggle("placeholder", !e.partial);
             const done = e.segments.filter((s) => s.complete).length;
-            liveStatus.textContent = `${done}/${e.segments.length} Sätze fertig`;
+            liveStatus.textContent = `${done}/${e.segments.length} sentences done`;
           });
           liveSession.on("error", (err) => {
             out.textContent = formatTranslatorError(err);
             out.classList.remove("placeholder");
-            liveStatus.textContent = "Fehler";
+            liveStatus.textContent = "Error";
           });
         }
         return liveSession;
@@ -622,25 +899,25 @@
 
       runBtn.addEventListener("click", async () => {
         runBtn.disabled = true;
-        out.textContent = "Übersetze …";
+        out.textContent = "Translating…";
         out.classList.remove("placeholder");
         try {
           if (liveModeToggle.checked) {
             const live = await ensureLiveSession();
             live.update(src.value);
           } else {
-            // Klassischer Modus: einmalig übersetzen via translate().
+            // Classic mode: translate once via translate().
             const t = await ensureReady();
             const result = await t.translate(src.value);
             out.textContent = result.text;
             out.classList.remove("placeholder");
-            partialOut.textContent = "(leer)";
+            partialOut.textContent = "(empty)";
             partialOut.classList.add("placeholder");
             liveStatus.textContent = "";
           }
         } catch (err) {
           out.textContent = formatTranslatorError(err);
-          setStatus("error", "Fehler bei der Übersetzung");
+          setStatus("error", "Translation failed");
         } finally {
           runBtn.disabled = false;
         }
@@ -648,16 +925,16 @@
 
       clearLiveBtn.addEventListener("click", () => {
         src.value = "";
-        out.textContent = "(leer)";
+        out.textContent = "(empty)";
         out.classList.add("placeholder");
-        partialOut.textContent = "(leer)";
+        partialOut.textContent = "(empty)";
         partialOut.classList.add("placeholder");
         liveStatus.textContent = "";
         renderLive();
         if (liveSession && !liveSession.disposed) live.clear();
       });
 
-      // Live-Update während des Tippens (nur im Live-Modus).
+      // Live update while typing (live mode only).
       src.addEventListener("input", async () => {
         renderLive();
         if (!liveModeToggle.checked) return;
@@ -665,25 +942,25 @@
           const live = await ensureLiveSession();
           live.update(src.value);
         } catch {
-          // Modell noch nicht bereit — wird beim nächsten input erneut versucht.
+          // Model not ready yet — retried on the next input event.
         }
       });
       renderLive();
 
-      // Umschaltung Live-Modus: LiveSession freigeben, Partial verstecken.
+      // Live mode toggle: release the LiveSession, hide the partial.
       liveModeToggle.addEventListener("change", () => {
         if (!liveModeToggle.checked) {
           liveSession?.dispose();
           liveSession = null;
-          partialOut.textContent = "(leer)";
+          partialOut.textContent = "(empty)";
           partialOut.classList.add("placeholder");
           liveStatus.textContent = "";
-          out.textContent = "(leer)";
+          out.textContent = "(empty)";
           out.classList.add("placeholder");
         }
       });
 
-      // ----- Batch-Section -----
+      // ----- Batch section -----
       function renderBatchItems() {
         batchContainer.innerHTML = "";
         for (const item of sampleTexts) {
@@ -692,16 +969,16 @@
           section.innerHTML = `
             <div class="meta">
               <span class="title">${item.title}</span>
-              <span class="status" data-status>ausstehend</span>
+              <span class="status" data-status>pending</span>
             </div>
             <div class="row">
               <div>
-                <label class="field">Quelltext</label>
+                <label class="field">Source text</label>
                 <textarea class="fliesstext" data-src>${item.text}</textarea>
               </div>
               <div>
-                <label class="field">Übersetzung</label>
-                <div class="out placeholder" data-out aria-live="polite">(nicht übersetzt)</div>
+                <label class="field">Translation</label>
+                <div class="out placeholder" data-out aria-live="polite">(not translated)</div>
               </div>
             </div>
           `;
@@ -721,19 +998,19 @@
 
       async function translateOne(item, t) {
         item.status.className = "status is-busy";
-        item.status.textContent = "läuft …";
+        item.status.textContent = "running…";
         item.out.classList.remove("placeholder");
-        item.out.textContent = "Übersetze …";
+        item.out.textContent = "Translating…";
         try {
           const result = await t.translate(item.src.value);
           item.out.textContent = result.text;
           item.status.className = "status is-done";
-          item.status.textContent = "fertig";
+          item.status.textContent = "done";
           return true;
         } catch (err) {
           item.out.textContent = formatTranslatorError(err);
           item.status.className = "status is-error";
-          item.status.textContent = "Fehler";
+          item.status.textContent = "error";
           return false;
         }
       }
@@ -744,13 +1021,13 @@
         const target = runAll ? items : items.slice(0, 1);
 
         runBatchBtn.disabled = true;
-        setStatus("busy", runAll ? "Batch läuft …" : "Übersetze ersten Text …");
+        setStatus("busy", runAll ? "Batch running…" : "Translating first text…");
 
         try {
           const t = await ensureReady();
           if (runAll) {
-            // Ein Batch-Aufruf statt N einzelner translate()-Aufrufe.
-            // Die ONNX-Engine nutzt nativen Worker-Batching (pipe([...])).
+            // One batch call instead of N individual translate() calls.
+            // The ONNX engine uses native worker batching (pipe([...])).
             const texts = items.map((item) => item.src.value);
             const results = await t.translateBatch(texts);
             let done = 0;
@@ -759,22 +1036,22 @@
               item.out.classList.remove("placeholder");
               item.out.textContent = results[i].text;
               item.status.className = "status is-done";
-              item.status.textContent = "fertig";
+              item.status.textContent = "done";
               done += 1;
             }
-            setProgress(1, `Batch: ${done}/${items.length} fertig`);
+            setProgress(1, `Batch: ${done}/${items.length} done`);
           } else {
             await translateOne(target[0], t);
-            setProgress(1, "Erster Text übersetzt.");
+            setProgress(1, "First text translated.");
           }
-          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
+          setStatus("ready", `Model ready${capabilitiesLabel()}`);
         } catch (err) {
-          setStatus("error", "Fehler beim Laden des Modells");
+          setStatus("error", "Error while loading the model");
           for (const item of target) {
             item.out.textContent = formatTranslatorError(err);
             item.out.classList.remove("placeholder");
             item.status.className = "status is-error";
-            item.status.textContent = "Fehler";
+            item.status.textContent = "error";
           }
         } finally {
           runBatchBtn.disabled = false;
@@ -783,15 +1060,15 @@
 
       clearBatchBtn.addEventListener("click", () => {
         for (const item of getBatchItems()) {
-          item.out.textContent = "(nicht übersetzt)";
+          item.out.textContent = "(not translated)";
           item.out.classList.add("placeholder");
           item.status.className = "status";
-          item.status.textContent = "ausstehend";
+          item.status.textContent = "pending";
         }
-        setProgress(0, "Ergebnisse geleert.");
+        setProgress(0, "Results cleared.");
       });
 
-      // ----- i18n-Style Section (t / translateAll) -----
+      // ----- i18n style section (t / translateAll) -----
       const runI18nBtn = document.getElementById("run-i18n");
       const resetI18nBtn = document.getElementById("reset-i18n");
       const i18nStats = document.getElementById("i18n-stats");
@@ -800,7 +1077,7 @@
       let i18nStore = null;
       let i18nUnsubscribe = null;
 
-      // Originale beim Laden sichern (für Zurücksetzen).
+      // Save the originals on load (for resetting).
       for (const el of i18nElements) el.dataset.i18nOriginal = el.textContent;
 
       function uniqueI18nCount() {
@@ -818,7 +1095,7 @@
         i18nStats.textContent = "";
       }
 
-      // Translator-Wechsel/Sprachwechsel: Store neu an den aktuellen Translator binden.
+      // Translator switch/language change: rebind the store to the current translator.
       async function ensureI18nReady() {
         const translator = await ensureReady();
         if (i18nT !== translator) {
@@ -834,19 +1111,19 @@
 
       runI18nBtn.addEventListener("click", async () => {
         runI18nBtn.disabled = true;
-        i18nStats.textContent = "Übersetze …";
-        setStatus("busy", "i18n: Übersetze …");
+        i18nStats.textContent = "Translating…";
+        setStatus("busy", "i18n: translating…");
         try {
           const translator = await ensureI18nReady();
           const total = i18nElements.length;
           const unique = uniqueI18nCount();
           await translator.translateAll();
-          // store.subscribe feuert → updateI18nDom aktualisiert alle Komponenten.
-          i18nStats.textContent = `${total} Strings → ${unique} eindeutig → 1 Batch-Aufruf`;
-          setStatus("ready", `Modell bereit${capabilitiesLabel()}`);
+          // store.subscribe fires → updateI18nDom updates all components.
+          i18nStats.textContent = `${total} strings → ${unique} unique → 1 batch call`;
+          setStatus("ready", `Model ready${capabilitiesLabel()}`);
         } catch (err) {
           i18nStats.textContent = formatTranslatorError(err);
-          setStatus("error", "Fehler bei der Übersetzung");
+          setStatus("error", "Translation failed");
         } finally {
           runI18nBtn.disabled = false;
         }
@@ -854,7 +1131,7 @@
 
       resetI18nBtn.addEventListener("click", () => {
         if (!i18nStore) { resetI18nDom(); return; }
-        // Store auf Originale zurücksetzen, damit erneut übersetzt werden kann.
+        // Reset the store to the originals so they can be translated again.
         i18nUnsubscribe?.();
         i18nStore.clear();
         const t = i18nT.t();
@@ -864,7 +1141,7 @@
         i18nStats.textContent = "";
       });
 
-      // Verhindert Quellsprache == Zielsprache (kein registriertes Paar).
+      // Prevent source language == target language (no registered pair).
       function preventSameLang(changed, other) {
         if (changed.value === other.value) {
           const opts = [...other.options];
@@ -873,25 +1150,25 @@
         }
       }
 
-      // ----- Sprachwechsel & Vorladen -----
+      // ----- Language switching & preloading -----
       function resetLiveOnLangChange() {
         liveSession?.dispose();
         liveSession = null;
-        out.textContent = "(leer)";
+        out.textContent = "(empty)";
         out.classList.add("placeholder");
-        partialOut.textContent = "(leer)";
+        partialOut.textContent = "(empty)";
         partialOut.classList.add("placeholder");
         liveStatus.textContent = "";
       }
-      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); resetLiveOnLangChange(); i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
-      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); resetLiveOnLangChange(); i18nT = null; resetI18nDom(); setStatus(null, "Sprache gewechselt — Modell nicht geladen"); setProgress(0, "Bereit."); });
+      fromSel.addEventListener("change", () => { preventSameLang(fromSel, toSel); resetLiveOnLangChange(); i18nT = null; resetI18nDom(); setStatus(null, "Language changed — model not loaded"); setProgress(0, "Ready."); });
+      toSel.addEventListener("change", () => { preventSameLang(toSel, fromSel); resetLiveOnLangChange(); i18nT = null; resetI18nDom(); setStatus(null, "Language changed — model not loaded"); setProgress(0, "Ready."); });
 
       preloadBtn.addEventListener("click", async () => {
         preloadBtn.disabled = true;
         try {
           await ensureReady();
         } catch (err) {
-          // Fehler wird bereits in ensureReady gesetzt.
+          // The error is already set in ensureReady.
         } finally {
           preloadBtn.disabled = false;
         }

@@ -31,6 +31,15 @@ import {
  */
 const MAX_BATCH = 32;
 
+/**
+ * Maximum total character count per batch chunk. ONNX pads every sequence in
+ * a chunk to the longest one, so bounding the chunk's character budget keeps
+ * the padding overhead low when inputs mix short UI labels with long
+ * sentences. Chunks are formed by both limits (`MAX_BATCH` and
+ * `MAX_BATCH_CHARS`) — whichever is hit first.
+ */
+const MAX_BATCH_CHARS = 1200;
+
 /** ONNX filename suffix for each resolved dtype (matches Transformers.js). */
 const DTYPE_SUFFIX: Record<ResolvedDtype, string> = {
   fp16: "_fp16",
@@ -55,6 +64,15 @@ type WorkerResponse =
   | { kind: "progress"; id: number; event: ProgressEventPayload }
   | { kind: "capabilities"; id: number; device: string; dtype: string }
   | { kind: "loaded"; id: number }
+  | { kind: "inference-start"; id: number; batchSize: number; inputChars: number }
+  | {
+      kind: "inference-done";
+      id: number;
+      batchSize: number;
+      inputChars: number;
+      outputChars: number;
+      durationMs: number;
+    }
   | { kind: "result"; id: number; text: string }
   | { kind: "result"; id: number; texts: string[] }
   | { kind: "disposed"; id: number }
@@ -99,7 +117,7 @@ export class TransformersEngine implements TranslationEngine {
       );
     }
     this.#registry = registry;
-    this.#device = options.device ?? "auto";
+    this.#device = options.device ?? "wasm";
     this.#dtype = options.dtype;
   }
 
@@ -125,13 +143,10 @@ export class TransformersEngine implements TranslationEngine {
     // (e.g. _fp16.onnx for WebGPU+fp16) instead of the registry's default
     // (_bnb4.onnx). Non-ONNX files (tokenizer, config) are dtype-independent.
     const urls = this.#cacheCheckUrls(descriptor);
-    for (const url of urls) {
-      const match = await caches.match(url);
-      if (!match) {
-        return false;
-      }
-    }
-    return true;
+    // Parallel Cache Storage lookups — sequential awaits add up over the
+    // 4-6 model files (tokenizer, config, encoder/decoder ONNX).
+    const matches = await Promise.all(urls.map((url) => caches.match(url)));
+    return matches.every(Boolean);
   }
 
   /**
@@ -266,9 +281,32 @@ export class TransformersEngine implements TranslationEngine {
       }
     }
 
+    // Sort by input length (ascending). ONNX pads every sequence in a chunk
+    // to the longest one, so grouping similar lengths minimizes wasted
+    // padding tokens. V8's sort is stable, so equal-length inputs keep their
+    // input order. Results are mapped back to the original indices below —
+    // the output order still matches the input order.
+    const order = nonEmptyTexts
+      .map((text, i) => ({ text, i }))
+      .sort((a, b) => a.text.length - b.text.length);
+
     const translated: string[] = new Array(texts.length).fill("");
-    for (let i = 0; i < nonEmptyTexts.length; i += MAX_BATCH) {
-      const chunk = nonEmptyTexts.slice(i, i + MAX_BATCH);
+    let chunkStart = 0;
+    while (chunkStart < order.length) {
+      // Grow the chunk until MAX_BATCH or MAX_BATCH_CHARS is exceeded. The
+      // first text of the chunk is always included (even when it alone
+      // exceeds MAX_BATCH_CHARS) so oversized inputs still translate.
+      let chunkEnd = chunkStart + 1;
+      let chars = order[chunkStart]!.text.length;
+      while (
+        chunkEnd < order.length &&
+        chunkEnd - chunkStart < MAX_BATCH &&
+        chars + order[chunkEnd]!.text.length <= MAX_BATCH_CHARS
+      ) {
+        chars += order[chunkEnd]!.text.length;
+        chunkEnd += 1;
+      }
+      const chunk = order.slice(chunkStart, chunkEnd).map((e) => e.text);
       const id = this.#nextId();
       const response = await this.#requestWithAbort(
         { kind: "translate", id, texts: chunk },
@@ -281,8 +319,9 @@ export class TransformersEngine implements TranslationEngine {
         );
       }
       for (let j = 0; j < chunk.length; j++) {
-        translated[nonEmptyIndices[i + j]!] = response.texts[j] ?? "";
+        translated[nonEmptyIndices[order[chunkStart + j]!.i]!] = response.texts[j] ?? "";
       }
+      chunkStart = chunkEnd;
     }
 
     return translated.map((text) => ({ text, from: pair.from, to: pair.to, engine: this.id }));
@@ -342,14 +381,15 @@ export class TransformersEngine implements TranslationEngine {
     }
     const urls = this.#cacheCheckUrls(descriptor);
     // Iterate all Cache Storage caches — Transformers.js may use any cache
-    // name, and there are typically very few caches in an app.
+    // name, and there are typically very few caches in an app. Deletes run
+    // in parallel per cache to avoid sequential roundtrips.
     const cacheNames = await caches.keys();
-    for (const cacheName of cacheNames) {
-      const cache = await caches.open(cacheName);
-      for (const url of urls) {
-        await cache.delete(url);
-      }
-    }
+    await Promise.all(
+      cacheNames.map(async (cacheName) => {
+        const cache = await caches.open(cacheName);
+        await Promise.all(urls.map((url) => cache.delete(url)));
+      }),
+    );
   }
 
   async #requireModel(pair: LanguagePair) {
@@ -525,6 +565,28 @@ export class TransformersEngine implements TranslationEngine {
     }
     if (response.kind === "progress" || response.kind === "capabilities") {
       pending.onEvent?.(response);
+      return;
+    }
+    // Forward worker inference timing as debug events. The pending request
+    // stays alive — "result" (or "error") resolves/rejects it as usual.
+    if (response.kind === "inference-start" || response.kind === "inference-done") {
+      const shared = {
+        timestamp: now(),
+        engine: this.id,
+        requestId: response.id,
+        batchSize: response.batchSize,
+        inputChars: response.inputChars,
+      };
+      this.#debug(
+        response.kind === "inference-start"
+          ? { type: "inference-start", ...shared }
+          : {
+              type: "inference-done",
+              ...shared,
+              outputChars: response.outputChars,
+              durationMs: response.durationMs,
+            },
+      );
       return;
     }
     this.#pending.delete(response.id);

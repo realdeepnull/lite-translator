@@ -21,6 +21,54 @@ describe("TranslationStore", () => {
     expect(store.get("title")).toBe("Hello");
   });
 
+  it("setMany setzt mehrere Werte und benachrichtigt genau einmal", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    store.register("b", "2");
+    store.register("c", "3");
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.setMany([
+      ["a", "eins"],
+      ["b", "zwei"],
+      ["c", "drei"],
+    ]);
+    expect(store.get("a")).toBe("eins");
+    expect(store.get("b")).toBe("zwei");
+    expect(store.get("c")).toBe("drei");
+    expect(listener).toHaveBeenCalledTimes(1); // ein Notify statt N
+  });
+
+  it("setMany mit leerem Iterable benachrichtigt nicht", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.setMany([]);
+    expect(listener).not.toHaveBeenCalled();
+    expect(store.get("a")).toBe("1");
+  });
+
+  it("setMany lässt den letzten Eintrag bei doppelten Keys gewinnen", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    store.setMany([
+      ["a", "eins"],
+      ["a", "ONE"],
+    ]);
+    expect(store.get("a")).toBe("ONE");
+  });
+
+  it("setMany invalidiert den gecachten Snapshot", () => {
+    const store = new TranslationStore();
+    store.register("a", "1");
+    const snap1 = store.snapshot();
+    store.setMany([["a", "eins"]]);
+    const snap2 = store.snapshot();
+    expect(snap2).not.toBe(snap1);
+    expect(snap2).toEqual({ a: "eins" });
+  });
+
   it("original liefert den ursprünglichen Text auch nach set", () => {
     const store = new TranslationStore();
     store.register("title", "Hallo");
