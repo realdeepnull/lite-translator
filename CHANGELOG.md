@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and the first WebGPU run additionally pays runtime shader compilation.
   WebGPU remains opt-in via `device: "auto"` (probe + WASM fallback) or
   `device: "webgpu"`. Engines with an explicit `device` are unaffected.
+- **Peer dependency raised to `@lite-translator/core ^0.2.1`**
+  (`@lite-translator/engine-onnx`): the engine now requires core 0.2.1,
+  which ships the `inference-start` / `inference-done` `DebugEvent` types
+  the engine emits and re-exports. Consumers on core 0.2.0 do not receive
+  these events.
 
 ### Performance
 
